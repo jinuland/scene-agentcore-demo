@@ -1,0 +1,4 @@
+{
+  "app": "npx --no-install tsx infra/scene-demo-app.ts",
+  "output": ".studio/scene-demo-build/cdk"
+}

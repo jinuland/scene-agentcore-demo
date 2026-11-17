@@ -1,0 +1,6 @@
+node_modules/
+.studio/
+cdk.out/
+outputs/
+.env*
+.DS_Store
