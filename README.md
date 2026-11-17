@@ -1,6 +1,10 @@
 # SCENE · AWS 배포 패키지
 
+[한국어](README.md) · [English](readme_en.md)
+
 이 프로젝트에는 공개 캐릭터 챗 데모의 웹 화면, Lambda API, AgentCore Runtime, 작품 이미지, CDK 코드와 의존성 잠금 파일이 들어 있습니다. 기본 작품 네 개의 상세 화면에서 예시 대화 3턴을 볼 수 있습니다. 내 대화에는 브라우저에서 실제로 시작한 회차만 표시됩니다.
+
+[공개 데모 열기](https://d3ib5121x21g7w.cloudfront.net/)
 
 ## 준비
 
@@ -11,7 +15,7 @@
 
 ## 배포
 
-ZIP을 푼 디렉터리에서 실행합니다. 아래의 customer-demo를 자신의 AWS CLI 프로필로 바꾸세요.
+저장소를 클론하거나 배포 ZIP을 푼 디렉터리에서 실행합니다. 아래의 customer-demo를 자신의 AWS CLI 프로필로 바꾸세요.
 
 ~~~sh
 npm ci
@@ -43,6 +47,8 @@ AWS_PROFILE=customer-demo npm run demo:character
 synth는 소스 번들을 만들고 CloudFormation 템플릿을 생성합니다. 로컬 데모는 배포 출력의 Runtime ARN과 AWS CLI 자격 증명을 사용합니다.
 
 ## 아키텍처
+
+![SCENE AWS 아키텍처. 브라우저에서 CloudFront, Lambda, AgentCore Runtime, Bedrock으로 이어지고 Lambda가 DynamoDB에 회차를 저장합니다.](docs/scene-aws-architecture.png)
 
 브라우저 → CloudFront → Lambda Function URL → AgentCore Node.js Runtime → Amazon Bedrock. CloudFront가 Origin Access Control로 Lambda의 IAM 원본을 호출합니다. Lambda가 DynamoDB에서 작품·대화·상태를 조회하고 저장합니다. AgentCore가 작품 설정과 대화 문맥을 모델에 보내고 문장과 상태 판정 결과를 받습니다. [CloudFront에서 Lambda 원본 보호](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html)
 
