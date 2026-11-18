@@ -1,3 +1,5 @@
+import { locale, setupLanguage, t } from "./i18n.js";
+
 const app = document.querySelector("#app");
 const dialog = document.querySelector("#gallery");
 const toast = document.querySelector("#toast");
@@ -29,10 +31,10 @@ async function api(path, data) {
     }
     init = {method:"POST", headers, body};
   }
-  const response = await fetch("/api/" + path, init);
+  const response = await fetch("/api/" + path + "?lang=" + locale, init);
   const payload = await response.json();
   if (!response.ok) {
-    const error = new Error(payload.error || "요청을 완료할 수 없습니다.");
+    const error = new Error(t(payload.error || "요청을 완료할 수 없습니다."));
     error.accessRequired = payload.accessRequired === true;
     error.status = response.status;
     throw error;
@@ -68,62 +70,62 @@ function discover() {
   const genres = ["전체", ...new Set(library.stories.map(story => story.genre))];
   const filtered = filter === "전체" ? library.stories : library.stories.filter(s => s.genre === filter);
   const cards = filtered.map(story => '<button class="card story-' + esc(story.id) + '" data-story="' + esc(story.id) + '"><div class="thumb">' +
-    image(story.cover, "") + badge(story.custom ? "내 작품" : story.genre) + '</div><div class="card-copy"><h3>' + esc(story.title) + '</h3><p>' + esc(story.tagline) + '</p></div></button>').join("");
-  setContent('<div class="container"><div class="topline"><div><p class="kicker">STORY LIBRARY</p><h2 class="section-title">작품 탐색</h2></div>' +
-    '<span class="live">' + (library.runtime ? '<i></i> AgentCore 연결 설정됨' : 'AgentCore 설정 필요') + '</span></div>' +
+    image(story.cover, "") + badge(t(story.custom ? "내 작품" : story.genre)) + '</div><div class="card-copy"><h3>' + esc(story.title) + '</h3><p>' + esc(story.tagline) + '</p></div></button>').join("");
+  setContent('<div class="container"><div class="topline"><div><p class="kicker">' + t("STORY LIBRARY") + '</p><h2 class="section-title">' + t("작품 탐색") + '</h2></div>' +
+    '<span class="live">' + (library.runtime ? '<i></i> ' + t("AgentCore 연결 설정됨") : t("AgentCore 설정 필요")) + '</span></div>' +
     '<section class="hero">' + image(feature.cover, "", "hero-art", true) + '<div class="hero-copy">' +
-    badge("추천 스토리 · " + feature.genre, "spark") + '<h1>' + esc(feature.title) + '</h1><p>' + esc(feature.tagline) + '</p><div class="actions">' +
-    button("btn primary", 'data-story="' + feature.id + '"', "이야기 열기", "play") +
-    button("btn", 'data-view="craft"', "작품 만들기", "editIcon") + '</div></div></section>' +
-    '<section><div class="section-head"><div><h2>어떤 이야기에 들어갈까요?</h2><p>작품마다 다른 역할과 첫 장면이 기다립니다.</p></div><div class="filters" aria-label="장르 필터">' +
-    genres.map(g => button("filter" + (g === filter ? " current" : ""), 'data-filter="' + esc(g) + '" aria-pressed="' + (g === filter) + '"', esc(g))).join("") +
+    badge(t("추천 스토리") + " · " + t(feature.genre), "spark") + '<h1>' + esc(feature.title) + '</h1><p>' + esc(feature.tagline) + '</p><div class="actions">' +
+    button("btn primary", 'data-story="' + feature.id + '"', t("이야기 열기"), "play") +
+    button("btn", 'data-view="craft"', t("작품 만들기"), "editIcon") + '</div></div></section>' +
+    '<section><div class="section-head"><div><h2>' + t("어떤 이야기에 들어갈까요?") + '</h2><p>' + t("작품마다 다른 역할과 첫 장면이 기다립니다.") + '</p></div><div class="filters" aria-label="' + t("장르 필터") + '">' +
+    genres.map(g => button("filter" + (g === filter ? " current" : ""), 'data-filter="' + esc(g) + '" aria-pressed="' + (g === filter) + '"', esc(t(g)))).join("") +
     '</div></div><div class="cards">' + cards + '</div></section></div>');
 }
 function detail(story) {
   const last = library.sessions.find(item => item.story === story.id);
-  setContent('<div class="container detail">' + button("btn", 'data-view="discover"', "작품 탐색", "back") +
+  setContent('<div class="container detail">' + button("btn", 'data-view="discover"', t("작품 탐색"), "back") +
     '<section class="cover-detail story-' + esc(story.id) + '">' + image(story.cover, "", "", true) + '<header>' +
-    badge(story.premiseBadge || story.genre) + '<h1>' + esc(story.title) + '</h1><p>' + esc(story.tagline) + '</p></header></section>' +
-    '<section class="detail-body"><p class="kicker">PROLOGUE</p><p>' + esc(story.prologue) + '</p><p><strong>내 역할</strong> · ' + esc(story.role) + '</p>' +
+    badge(story.premiseBadge || t(story.genre)) + '<h1>' + esc(story.title) + '</h1><p>' + esc(story.tagline) + '</p></header></section>' +
+    '<section class="detail-body"><p class="kicker">' + t("PROLOGUE") + '</p><p>' + esc(story.prologue) + '</p><p><strong>' + t("내 역할") + '</strong> · ' + esc(story.role) + '</p>' +
     (story.source ? '<a class="source" target="_blank" rel="noreferrer" href="' + esc(story.source.url) + '">' + esc(story.source.label) + ' ↗</a>' : '') + '</section>' +
-    '<div class="actions">' + (last ? button("btn primary", 'data-episode="' + last.id + '"', "이어하기", "play") : '') +
-    button(last ? "btn" : "btn primary", 'data-start="' + esc(story.id) + '"', last ? "새 회차 시작" : "대화 시작", "arrow") +
-    (story.previewTurns?.length ? button("btn", 'data-story-preview="open" aria-controls="story-preview"', "예시 대화 보기", "chatIcon") : "") +
+    '<div class="actions">' + (last ? button("btn primary", 'data-episode="' + last.id + '"', t("이어하기"), "play") : '') +
+    button(last ? "btn" : "btn primary", 'data-start="' + esc(story.id) + '"', t(last ? "새 회차 시작" : "대화 시작"), "arrow") +
+    (story.previewTurns?.length ? button("btn", 'data-story-preview="open" aria-controls="story-preview"', t("예시 대화 보기"), "chatIcon") : "") +
     '</div>' + storyPreview(story) + '</div>');
 }
 function storyPreview(story) {
   if (!story.previewTurns?.length) return "";
   const turns = story.previewTurns.map(turn =>
-    '<li class="preview-turn"><div class="preview-player"><span>플레이어</span><p>' + esc(turn.input) + '</p></div>' +
+    '<li class="preview-turn"><div class="preview-player"><span>' + t("플레이어") + '</span><p>' + esc(turn.input) + '</p></div>' +
     reply(story, turn.beats) + '</li>',
   ).join("");
   return '<section class="story-preview" id="story-preview" aria-labelledby="story-preview-heading">' +
-    '<h2 id="story-preview-heading" tabindex="-1">예시 대화</h2><ol class="preview-transcript">' + turns + '</ol></section>';
+    '<h2 id="story-preview-heading" tabindex="-1">' + t("예시 대화") + '</h2><ol class="preview-transcript">' + turns + '</ol></section>';
 }
 function shelf() {
   const rows = library.sessions.map(session => {
     const story = storyFor(session.story);
     if (!story) return "";
     return '<div class="shelf-row"><button class="shelf-item" data-episode="' + session.id + '">' + image(story.cover, "") +
-      '<span><strong>' + esc(story.title) + '</strong><small>' + esc(story.character) + ' · 이어하기</small></span>' + icon("arrow") + '</button>' +
-      button("btn delete-button", 'data-delete-episode="' + session.id + '" aria-label="' + esc(story.title) + ' 대화 삭제"', "삭제", "trash") + '</div>';
+      '<span><strong>' + esc(story.title) + '</strong><small>' + esc(story.character) + ' · ' + t("이어하기") + '</small></span>' + icon("arrow") + '</button>' +
+      button("btn delete-button", 'data-delete-episode="' + session.id + '" aria-label="' + esc(t("{story} 대화 삭제", { story: story.title })) + '"', t("삭제"), "trash") + '</div>';
   }).join("");
-  setContent('<div class="container new-story"><p class="kicker">YOUR EPISODES</p><h1 class="section-title">내 대화</h1><p class="subtle">이 브라우저에서 열었던 회차를 다시 읽을 수 있어요.</p>' +
-    (rows ? '<div class="shelf">' + rows + '</div>' : '<p class="empty">아직 대화가 없어요. 작품을 하나 골라 시작해 보세요.</p>' + button("btn primary", 'data-view="discover"', "작품 탐색", "arrow")) + '</div>');
+  setContent('<div class="container new-story"><p class="kicker">' + t("YOUR EPISODES") + '</p><h1 class="section-title">' + t("내 대화") + '</h1><p class="subtle">' + t("이 브라우저에서 열었던 회차를 다시 읽을 수 있어요.") + '</p>' +
+    (rows ? '<div class="shelf">' + rows + '</div>' : '<p class="empty">' + t("아직 대화가 없어요. 작품을 하나 골라 시작해 보세요.") + '</p>' + button("btn primary", 'data-view="discover"', t("작품 탐색"), "arrow")) + '</div>');
 }
 function craft() {
   const genres = [...new Set(library.stories.map(s => s.genre))];
-  setContent('<div class="container new-story"><p class="kicker">CREATOR STUDIO</p><h1 class="section-title">작품 만들기</h1><p class="subtle">캐릭터와 첫 장면을 정한 뒤 새 회차에서 곧바로 대화해 보세요.</p>' +
+  setContent('<div class="container new-story"><p class="kicker">' + t("CREATOR STUDIO") + '</p><h1 class="section-title">' + t("작품 만들기") + '</h1><p class="subtle">' + t("캐릭터와 첫 장면을 정한 뒤 새 회차에서 곧바로 대화해 보세요.") + '</p>' +
     '<form id="draft" class="craft-form"><div class="fields">' +
-    '<label>작품 제목<input name="title" maxlength="48" placeholder="예: 심야 수리점" required></label>' +
-    '<label>캐릭터 이름<input name="name" maxlength="24" placeholder="예: 윤" required></label>' +
-    '<label>장르<select name="genre">' + genres.map(g => '<option>' + esc(g) + '</option>').join("") + '</select></label>' +
-    '<label>표지<select name="cover">' + library.stories.filter(s => !s.custom).map(s => '<option value="' + s.id + '">' + esc(s.genre) + ' 표지</option>').join("") + '</select></label></div>' +
-    '<label>세계관과 첫 상황<textarea name="setting" rows="4" maxlength="700" placeholder="장소, 캐릭터의 말투와 지금 일어난 일을 적어 주세요." required></textarea></label>' +
-    '<label>플레이어 역할<input name="role" maxlength="120" placeholder="예: 고장 난 기기를 맡기러 온 손님" required></label>' +
-    '<label>캐릭터의 첫 대사<textarea name="greeting" rows="2" maxlength="400" placeholder="예: 불은 껐지만, 아직 문은 안 잠갔어요." required></textarea></label>' +
-    '<label>신뢰도가 오르는 행동 <span class="form-hint">선택 사항 · 해당하는 발언에 신뢰도 +1</span><input name="trustWhen" maxlength="180" placeholder="예: 손님이 수리를 함께 돕겠다고 자발적으로 말한다."></label>' +
-    '<p id="draft-error" class="error" role="alert" hidden></p><div class="actions"><button class="btn primary" type="submit">' + icon("play") + '저장하고 테스트 채팅</button></div></form></div>');
+    '<label>' + t("작품 제목") + '<input name="title" maxlength="48" placeholder="' + t("예: 심야 수리점") + '" required></label>' +
+    '<label>' + t("캐릭터 이름") + '<input name="name" maxlength="24" placeholder="' + t("예: 윤") + '" required></label>' +
+    '<label>' + t("장르") + '<select name="genre">' + genres.map(g => '<option value="' + esc(g) + '">' + esc(t(g)) + '</option>').join("") + '</select></label>' +
+    '<label>' + t("표지") + '<select name="cover">' + library.stories.filter(s => !s.custom).map(s => '<option value="' + s.id + '">' + esc(t("{genre} 표지", { genre: t(s.genre) })) + '</option>').join("") + '</select></label></div>' +
+    '<label>' + t("세계관과 첫 상황") + '<textarea name="setting" rows="4" maxlength="700" placeholder="' + t("장소, 캐릭터의 말투와 지금 일어난 일을 적어 주세요.") + '" required></textarea></label>' +
+    '<label>' + t("플레이어 역할") + '<input name="role" maxlength="120" placeholder="' + t("예: 고장 난 기기를 맡기러 온 손님") + '" required></label>' +
+    '<label>' + t("캐릭터의 첫 대사") + '<textarea name="greeting" rows="2" maxlength="400" placeholder="' + t("예: 불은 껐지만, 아직 문은 안 잠갔어요.") + '" required></textarea></label>' +
+    '<label>' + t("신뢰도가 오르는 행동") + ' <span class="form-hint">' + t("선택 사항 · 해당하는 발언에 신뢰도 +1") + '</span><input name="trustWhen" maxlength="180" placeholder="' + t("예: 손님이 수리를 함께 돕겠다고 자발적으로 말한다.") + '"></label>' +
+    '<p id="draft-error" class="error" role="alert" hidden></p><div class="actions"><button class="btn primary" type="submit">' + icon("play") + t("저장하고 테스트 채팅") + '</button></div></form></div>');
 }
 function cardFor(story, key) { return story.cards[key] ?? story.cards.neutral; }
 function reply(story, beats) {
@@ -135,49 +137,50 @@ function chatHistory(story, episode, pendingText) {
     const card = cardFor(story, turn.mood);
     return '<article class="turn"><div class="turn-player"><p>' + esc(turn.input) + '</p></div>' +
       (turn.mood !== "neutral" ? image(card.file, card.label, "scene-img") : "") +
-      reply(story, turn.beats) + '<p class="turn-caption">' + esc(modelFor(turn.mode)) + ' · ' + (turn.timing / 1000).toFixed(1) + '초' +
-      (turn.trustQuote ? ' <strong title="' + esc(turn.trustQuote) + '">신뢰도 +1</strong>' : '') + '</p></article>';
+      reply(story, turn.beats) + '<p class="turn-caption">' + esc(modelFor(turn.mode)) + ' · ' + (turn.timing / 1000).toFixed(1) + t("초") +
+      (turn.trustQuote ? ' <strong title="' + esc(turn.trustQuote) + '">' + t("신뢰도 +1") + '</strong>' : '') + '</p></article>';
   }).join("");
-  return '<div class="stream-wrap"><p class="opening-mark">' + icon("book") + ' 프롤로그</p>' +
+  return '<div class="stream-wrap"><p class="opening-mark">' + icon("book") + ' ' + t("프롤로그") + '</p>' +
     image(story.cards.neutral.file, story.cards.neutral.label, "scene-img", true) +
     '<p class="opening-text">' + esc(story.prologue) + '</p>' + reply(story,[{kind:"speech",text:story.greeting}]) + body +
-    (pendingText ? '<div class="turn-player"><p>' + esc(pendingText) + '</p></div><p class="send-pending" role="status">' + esc(story.character) + '의 다음 장면을 이어가는 중…</p>' : '') + '</div>';
+    (pendingText ? '<div class="turn-player"><p>' + esc(pendingText) + '</p></div><p class="send-pending" role="status">' + esc(t("{name}의 다음 장면을 이어가는 중…", { name: story.character })) + '</p>' : '') + '</div>';
 }
 function statusPanel(story, episode) {
   const stats = episode.stats;
   const card = cardFor(story, episode.turns.at(-1)?.mood);
   const event = episode.turns.at(-1)?.trustQuote;
   const statText = stats.trust + " / " + stats.max;
-  return iconButton('data-status="close"',"close","상태창 닫기","status-close") +
-    '<h2 id="status-heading">' + icon("statusIcon") + '상태창</h2>' + image(card.file, card.label, "status-image", true) +
-    '<dl class="status-block"><dt>현재 장면</dt><dd>' + esc(story.scene) + '</dd><dt>내 역할</dt><dd>' + esc(story.role) + '</dd>' +
-    (story.objective ? '<dt>목표</dt><dd>' + esc(story.objective) + '</dd>' : '') +
+  return iconButton('data-status="close"',"close",t("상태창 닫기"),"status-close") +
+    '<h2 id="status-heading">' + icon("statusIcon") + t("상태창") + '</h2>' + image(card.file, card.label, "status-image", true) +
+    '<dl class="status-block"><dt>' + t("현재 장면") + '</dt><dd>' + esc(story.scene) + '</dd><dt>' + t("내 역할") + '</dt><dd>' + esc(story.role) + '</dd>' +
+    (story.objective ? '<dt>' + t("목표") + '</dt><dd>' + esc(story.objective) + '</dd>' : '') +
     (episode.status ? '<dt>' + esc(episode.status.label) + '</dt><dd>' + esc(episode.status.value) + '</dd>' : '') +
-    '<dt>대화 턴</dt><dd>' + episode.turns.length + '</dd></dl>' +
-    (story.hasTrust ? '<div class="status-block"><p class="stat-heading">신뢰도 <span class="stat-value">' + statText + '</span></p>' +
-      '<div class="meter" role="meter" aria-label="신뢰도" aria-valuemin="0" aria-valuemax="' + stats.max + '" aria-valuenow="' + stats.trust + '">' +
+    '<dt>' + t("대화 턴") + '</dt><dd>' + episode.turns.length + '</dd></dl>' +
+    (story.hasTrust ? '<div class="status-block"><p class="stat-heading">' + t("신뢰도") + ' <span class="stat-value">' + statText + '</span></p>' +
+      '<div class="meter" role="meter" aria-label="' + t("신뢰도") + '" aria-valuemin="0" aria-valuemax="' + stats.max + '" aria-valuenow="' + stats.trust + '">' +
       Array.from({length:stats.max},(_,i) => '<span' + (i < stats.trust ? ' class="filled"' : '') + '></span>').join("") + '</div>' +
       '<p class="caption">' + esc(stats.level) + '</p>' + (event ? '<p class="status-change">+1 · “' + esc(event) + '”</p>' : '') + '</div>' : '') +
-    '<div class="status-foot">' + button("btn", 'data-gallery="open"', "이미지 보관함", "imageIcon") +
-    button("btn", 'data-start="' + esc(story.id) + '"', "새 회차", "spark") + '</div>';
+    '<div class="status-foot">' + button("btn", 'data-gallery="open"', t("이미지 보관함"), "imageIcon") +
+    button("btn", 'data-start="' + esc(story.id) + '"', t("새 회차"), "spark") + '</div>';
 }
 function suggestions(story, episode) {
-  const picks = episode.turns.length ? episode.turns.at(-1).suggestions : story.suggestions;
+  const last = episode.turns.at(-1);
+  const picks = last && (last.responseLanguage ?? "ko") === locale ? last.suggestions : story.suggestions;
   return picks.map(s => button("suggest", 'data-suggestion="' + esc(s) + '"', esc(s))).join("");
 }
 function chat(story, episode) {
   const model = rememberedModel();
   const groups = [...new Set(library.models.map(m => m.provider))].map(provider => '<optgroup label="' + esc(provider) + '">' +
     library.models.filter(m => m.provider === provider).map(m => '<option value="' + esc(m.id) + '"' + (m.id === model ? ' selected' : '') + '>' + esc(m.label) + '</option>').join("") + '</optgroup>').join("");
-  setContent('<div class="storychat"><div class="chat-core"><header class="chatbar">' + iconButton('data-story="' + esc(story.id) + '"',"back","작품으로 돌아가기") +
+  setContent('<div class="storychat"><div class="chat-core"><header class="chatbar">' + iconButton('data-story="' + esc(story.id) + '"',"back",t("작품으로 돌아가기")) +
     '<div><h1>' + esc(story.title) + '</h1><p class="subtle">' + esc(story.character) + ' · ' + esc(story.job) + '</p></div><div class="chatbar-right">' +
-    iconButton('data-gallery="open"',"imageIcon","이미지 보관함") + iconButton('data-status="open" aria-controls="story-status"',"statusIcon","상태창 열기","mobile-status") +
-    iconButton('data-delete-episode="' + episode.id + '"',"trash","이 대화 삭제","delete-button") +
+    iconButton('data-gallery="open"',"imageIcon",t("이미지 보관함")) + iconButton('data-status="open" aria-controls="story-status"',"statusIcon",t("상태창 열기"),"mobile-status") +
+    iconButton('data-delete-episode="' + episode.id + '"',"trash",t("이 대화 삭제"),"delete-button") +
     '</div></header><div class="transcript" id="transcript">' + chatHistory(story,episode) + '</div><form id="chat-form" class="composer"><div class="compose-inner">' +
     '<div id="suggestions" class="suggestions">' + suggestions(story,episode) + '</div><p id="turn-error" class="error" role="alert" hidden></p>' +
-    '<div class="compose-line"><textarea id="compose" aria-label="대화 입력" rows="1" maxlength="1500" placeholder="' + esc(story.character) + '에게 무엇이라고 말할까요?" required></textarea>' +
-    '<button type="submit" class="send" aria-label="보내기">' + icon("send") + '</button></div><div class="model-controls">' +
-    '<label>모델 <select id="model" aria-label="모델 선택">' + groups + '</select></label><span class="keyhint">Enter 보내기 · Shift+Enter 줄바꿈</span></div>' +
+    '<div class="compose-line"><textarea id="compose" aria-label="' + t("대화 입력") + '" rows="1" maxlength="1500" placeholder="' + esc(t("{name}에게 무엇이라고 말할까요?", { name: story.character })) + '" required></textarea>' +
+    '<button type="submit" class="send" aria-label="' + t("보내기") + '">' + icon("send") + '</button></div><div class="model-controls">' +
+    '<label>' + t("모델") + ' <select id="model" aria-label="' + t("모델 선택") + '">' + groups + '</select></label><span class="keyhint">' + t("Enter 보내기 · Shift+Enter 줄바꿈") + '</span></div>' +
     '</div></form></div><aside id="story-status" aria-labelledby="status-heading" class="status-panel' + (statusOpen ? ' open' : '') + '">' + statusPanel(story,episode) + '</aside></div>');
   if (episode.turns.length) scrollChat();
 }
@@ -199,11 +202,11 @@ async function renderRoute() {
   navState(view === "craft" || view === "shelf" ? view : "discover");
   try {
     if (view === "chat" && id) {
-      setContent('<p class="loading">회차를 불러오는 중입니다.</p>');
+      setContent('<p class="loading">' + t("회차를 불러오는 중입니다.") + '</p>');
       const episode = await api("episodes/" + encodeURIComponent(id));
       if (revision !== routeRevision) return;
       const story = storyFor(episode.story);
-      if (!story) throw new Error("작품을 찾지 못했습니다.");
+      if (!story) throw new Error(t("작품을 찾지 못했습니다."));
       current = { story, episode };
       upsertSession(episode);
       chat(story,episode);
@@ -213,7 +216,7 @@ async function renderRoute() {
     else discover();
     window.scrollTo(0,0);
   } catch (error) {
-    if (revision === routeRevision) setContent('<div class="container"><p class="empty">' + esc(error.message) + '</p>' + button("btn", 'data-view="discover"', "작품 탐색", "back") + '</div>');
+    if (revision === routeRevision) setContent('<div class="container"><p class="empty">' + esc(error.message) + '</p>' + button("btn", 'data-view="discover"', t("작품 탐색"), "back") + '</div>');
   }
 }
 async function start(id, trigger) {
@@ -250,7 +253,7 @@ async function deleteEpisode(id, trigger) {
   } else if (view === "shelf") {
     shelf();
   }
-  message("대화를 삭제했어요.");
+  message(t("대화를 삭제했어요."));
 }
 async function send() {
   if (!current) return;
@@ -376,12 +379,13 @@ async function loadLibrary() {
   } catch (error) {
     if (error.accessRequired) {
       library = undefined;
-      setContent('<div class="container access"><h1 class="section-title">SCENE 데모 입장</h1>' +
-        '<form class="craft-form" id="access-form"><label>접속 코드<input name="code" type="password" autocomplete="one-time-code" maxlength="128" required></label>' +
-        '<p class="error" role="alert" hidden></p><button class="btn primary" type="submit">입장하기</button></form></div>');
+      setContent('<div class="container access"><h1 class="section-title">' + t("SCENE 데모 입장") + '</h1>' +
+        '<form class="craft-form" id="access-form"><label>' + t("접속 코드") + '<input name="code" type="password" autocomplete="one-time-code" maxlength="128" required></label>' +
+        '<p class="error" role="alert" hidden></p><button class="btn primary" type="submit">' + t("입장하기") + '</button></form></div>');
       return;
     }
-    setContent('<p class="loading" role="alert">작품을 불러오지 못했습니다. 새로고침해 주세요.</p>');
+    setContent('<p class="loading" role="alert">' + t("작품을 불러오지 못했습니다. 새로고침해 주세요.") + '</p>');
   }
 }
+setupLanguage();
 await loadLibrary();

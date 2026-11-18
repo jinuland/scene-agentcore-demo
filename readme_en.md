@@ -4,7 +4,9 @@
 
 SCENE is a character chat demo built with Amazon Bedrock AgentCore. The repository includes the web app, Lambda API, AgentCore Runtime, story artwork, CDK infrastructure, and a dependency lockfile. Each of the four built-in stories includes a three-turn conversation preview. **My Chats** lists episodes started in the current browser.
 
-[Try the live demo](https://d3ib5121x21g7w.cloudfront.net/)
+[English demo](https://d3ib5121x21g7w.cloudfront.net/?lang=en) · [日本語デモ](https://d3ib5121x21g7w.cloudfront.net/?lang=ja) · [한국어 데모](https://d3ib5121x21g7w.cloudfront.net/?lang=ko)
+
+The language selector applies to the interface, the built-in stories and sample dialogue, and new model replies. Previously saved messages and user-authored story text are displayed in their original language.
 
 ## Prerequisites
 

@@ -4,6 +4,7 @@ import { createSceneService } from "./service";
 
 type FunctionUrlEvent = {
   rawPath: string;
+  rawQueryString?: string;
   headers: Record<string, string | undefined>;
   cookies?: string[];
   body?: string;
@@ -30,6 +31,7 @@ export async function handler(event: FunctionUrlEvent) {
   const origin = `https://${viewerHost}`;
   const url = new URL(event.rawPath, origin);
   if (url.origin !== origin) return { statusCode: 400, body: "" };
+  if (event.rawQueryString) url.search = event.rawQueryString;
   const headers = new Headers();
   for (const [name, value] of Object.entries(event.headers)) if (value !== undefined) headers.set(name, value);
   if (event.cookies?.length) headers.set("Cookie", event.cookies.join("; "));
