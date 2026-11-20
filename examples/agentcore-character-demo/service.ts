@@ -5,7 +5,7 @@ import { z } from "zod";
 import { enabledDialogueModes, dialogueModeSchema } from "../../lib/platform/dialogue-modes";
 import { verifyDialogueMatches } from "../../lib/platform/dialogue-stats";
 import { expressionReply } from "../../lib/platform/expressions";
-import { advanceNarrative, initialNarrativeState, publicNarrative } from "../../lib/platform/narrative-graph";
+import { initialNarrativeState, publicNarrative } from "../../lib/platform/narrative-graph";
 import { verifiedCandidates } from "../../lib/platform/memory";
 import { episodeRuntimeScope, invokeCloudRuntime } from "../../lib/platform/runtime-client";
 import { hasSceneDialogue, narrationPolicy, storyBeats } from "../../lib/platform/story-beats";
@@ -13,6 +13,7 @@ import { StudioError } from "../../lib/studio/store";
 import type { Context, Episode, SceneStore, Turn } from "./scene-store";
 import { localizeStory, sceneLocale, type SceneLocale } from "./story-locales";
 import { draftSchema, draftStory, moods, publicStory, stories, type Story } from "./stories";
+import { verifiedNarrativeState } from "./narrative-state";
 
 const idSchema = z.string().regex(/^[a-z0-9-]{1,64}$/);
 const turnSchema = z.object({
@@ -252,15 +253,8 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
         };
         if (story.narrative) {
           const previous = current.narrative ?? initialNarrativeState(story.narrative);
-          const returned = output.narrativeState;
-          if (!returned || returned.turns !== previous.turns + 1) throw new StudioError(502, "이야기 진행 상태를 확인하지 못했습니다. 다시 시도해 주세요.");
-          const transition = returned.transitions.find(event => event.turn === returned.turns);
-          const verified = advanceNarrative(story.narrative, previous, message, {
-            events: returned.events.filter(event => event.turn === returned.turns).map(({ id, quote }) => ({ id, quote })),
-            transition: transition ? { id: transition.id, quote: transition.quote } : null,
-          }).state;
-          if (JSON.stringify(verified) !== JSON.stringify(returned)) throw new StudioError(502, "이야기 진행 상태를 확인하지 못했습니다. 다시 시도해 주세요.");
-          current.narrative = verified;
+          try { current.narrative = verifiedNarrativeState(story.narrative, previous, message, output.narrativeState); }
+          catch { throw new StudioError(502, "이야기 진행 상태를 확인하지 못했습니다. 다시 시도해 주세요."); }
         }
         current.turns.push(turn);
         const remembered = verifiedCandidates(message, turn.text, output.memories).map(item => ({

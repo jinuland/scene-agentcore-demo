@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { advanceNarrative, compileNarrative, initialNarrativeState, narrativeContext, narrativeDefinitionSchema, narrativeGraph, publicNarrative, type NarrativeState } from "../lib/platform/narrative-graph";
 import { sarangNarrative as definition } from "../examples/agentcore-character-demo/sarang-story";
 import { sqliteStore } from "../examples/agentcore-character-demo/sqlite-store";
+import { verifiedNarrativeState } from "../examples/agentcore-character-demo/narrative-state";
 import { localizeStory } from "../examples/agentcore-character-demo/story-locales";
 import { publicStory, stories } from "../examples/agentcore-character-demo/stories";
 
@@ -119,6 +120,20 @@ test("public data excludes private definitions and English/Japanese preserve the
     assert.equal("narrative" in publicData, false); assert.equal("facts" in publicData, false);
     assert.equal(initialNarrativeState(localized.narrative!).definitionHash, initialNarrativeState(definition).definitionHash);
   }
+});
+
+test("state verification accepts DynamoDB map reordering and rejects altered history or counters", () => {
+  const reorder = (value: unknown): unknown => Array.isArray(value) ? value.map(reorder) : value && typeof value === "object"
+    ? Object.fromEntries(Object.entries(value).reverse().map(([key, entry]) => [key, reorder(entry)])) : value;
+  const trace = pathToSupport();
+  const previous = reorder(trace[6]) as NarrativeState, returned = trace[7];
+  assert.deepEqual(verifiedNarrativeState(definition, previous, input, returned), returned);
+  assert.deepEqual(verifiedNarrativeState(definition, trace[6], input, reorder(returned) as NarrativeState), returned);
+  const changed = structuredClone(returned); changed.counters.affection++;
+  assert.throws(() => verifiedNarrativeState(definition, previous, input, changed), /replay mismatch/);
+  const altered = structuredClone(returned); altered.events[0].quote = "변조된 과거";
+  assert.throws(() => verifiedNarrativeState(definition, previous, input, altered), /replay mismatch/);
+  assert.throws(() => verifiedNarrativeState(definition, previous, input, undefined), /turn mismatch/);
 });
 
 test("SQLite persists graph snapshots and event evidence across new connections with owner isolation and deletion", async () => {
