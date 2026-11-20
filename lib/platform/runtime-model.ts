@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { narrativeDefinitionSchema, narrativeStateSchema } from "./narrative-graph";
 import { structured } from "../studio/bedrock";
 import { dialogueModeSchema, dialogueModelSettings } from "./dialogue-modes";
 import { memoryCandidateSchema } from "./memory";
@@ -13,6 +14,7 @@ export const runtimeContextSchema = z
     policy: text,
     reportUsage: z.boolean().optional(),
     responseLanguage: z.enum(["en", "ja"]).optional(),
+    narrative: z.object({ definition: narrativeDefinitionSchema, state: narrativeStateSchema }).strict().optional(),
     dialogueMode: dialogueModeSchema.optional(),
     character: z
       .object({
@@ -71,6 +73,7 @@ export const runtimeReplySchema = z
     memories: z.array(memoryCandidateSchema).max(8),
     suggestions: z.array(z.string().max(140)).max(3).optional(),
     dialogueStatMatches: dialogueMatchesSchema.optional(),
+    narrativeState: narrativeStateSchema.optional(),
   })
   .strict();
 const lunaBeat = z.string().trim().min(1).max(360);
@@ -82,7 +85,7 @@ const lunaOpeningReply = lunaReply.extend({ sceneBeat: lunaBeat.describe("One gr
 const lunaFollowUpReply = lunaReply.extend({ sceneBeat: lunaBeat.optional().describe("Only for a changed scene or a newly useful grounded detail.") });
 const tokenCount = z.number().int().nonnegative().optional();
 export const runtimeUsageSchema = z.object({ inputTokens: tokenCount, outputTokens: tokenCount, cacheReadInputTokens: tokenCount, cacheWriteInputTokens: tokenCount, reasoningTokens: tokenCount, bedrockMs: z.number().int().nonnegative(),
-  agentCoreHeadersMs: tokenCount, agentCoreBodyMs: tokenCount, agentCoreStopMs: tokenCount, refereeMs: tokenCount,
+  agentCoreHeadersMs: tokenCount, agentCoreBodyMs: tokenCount, agentCoreStopMs: tokenCount, refereeMs: tokenCount, interpretationMs: tokenCount, graphMs: tokenCount,
 }).strict();
 export const runtimeReplyWithUsageSchema = runtimeReplySchema.extend({ usage: runtimeUsageSchema.optional() });
 export type RuntimeModel = (
@@ -103,7 +106,9 @@ export const bedrockRuntimeModel: RuntimeModel = async (context, signal) => {
   const { modelId, maxTokens, converseAuto, grokJson, mantleRegion } = dialogueModelSettings(context.dialogueMode);
   const luna = context.dialogueMode === "gpt6luna";
   const opening = !!context.scene && !context.recent.some(turn => turn.role === "assistant");
-  const reply = !luna ? runtimeReplySchema : opening ? lunaOpeningReply : lunaFollowUpReply;
+  const factIds = [...new Set(context.visibleFacts.map(fact => fact.id))];
+  const factReferences = factIds.length ? z.array(z.enum(factIds as [string, ...string[]])).max(60) : z.array(z.string()).max(0);
+  const reply = (!luna ? runtimeReplySchema : opening ? lunaOpeningReply : lunaFollowUpReply).omit({ narrativeState: true }).extend({ usedFactIds: factReferences });
   const compatibleReply = context.entities ? reply : reply.extend({
     memories: z.array(memoryCandidateSchema.omit({ ontology: true })).max(8),
   });

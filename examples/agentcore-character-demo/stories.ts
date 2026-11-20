@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { NarrativeDefinition } from "../../lib/platform/narrative-graph";
+import { sarangStory } from "./sarang-story";
 import { storyBeats } from "../../lib/platform/story-beats";
 import { benchmarkStarter } from "../../lib/studio/benchmark-starters";
 import { story as record } from "../last-record/story";
@@ -16,12 +18,15 @@ export type Story = {
   trustWhen?: string; objective?: string; premiseBadge?: string; source?: { label: string; url: string };
   field?: { label: string; initial: string; unlocked: string };
   previewTurns?: readonly PreviewTurn[];
+  prologueImages?: { file: string; label: string }[];
+  narrative?: NarrativeDefinition;
 };
 const art = (key: string) => `/art/${key}.webp`;
 const radio = benchmarkStarter("너와 나만 듣는 트랙", "radio");
 const seoyun = record.characters[0];
 const eungyeol = radio.characters[0];
 export const stories: Story[] = [
+  sarangStory,
   {
     id: "academy", title: "퇴학까지 9일, 내 소환사는 낙제생", genre: "판타지",
     tagline: "눈을 뜨니 소환진 안. 그런데 당신을 소환한 사람이 곧 퇴학당한다.",
@@ -124,8 +129,8 @@ export function draftStory(id: string, draft: z.infer<typeof draftSchema>): Stor
     cards: { neutral: { file: sample.cover, label: "작품 표지" } },
   };
 }
-export const publicStory = ({ id, title, genre, tagline, role, scene, prologue, greeting, cover, character, job, suggestions, cards, custom, trustWhen, objective, premiseBadge, source, field, previewTurns }: Story) => ({
-  id, title, genre, tagline, role, scene, prologue, greeting, cover, character, job, suggestions, custom, hasTrust: !!trustWhen, objective, premiseBadge, source, field,
+export const publicStory = ({ id, title, genre, tagline, role, scene, prologue, greeting, cover, character, job, suggestions, cards, custom, trustWhen, objective, premiseBadge, source, field, previewTurns, prologueImages, narrative }: Story) => ({
+  id, title, genre, tagline, role, scene, prologue, greeting, cover, character, job, suggestions, custom, hasTrust: !!trustWhen, objective, premiseBadge, source, field, prologueImages, hasNarrative: !!narrative,
   previewTurns: previewTurns?.map(turn => ({ input: turn.input, beats: storyBeats(turn.reply) })),
   cards: Object.fromEntries(Object.entries(cards).map(([key, { file, label }]) => [key, { file, label }])),
 });

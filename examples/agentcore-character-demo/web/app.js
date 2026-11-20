@@ -91,7 +91,24 @@ function detail(story) {
     '<div class="actions">' + (last ? button("btn primary", 'data-episode="' + last.id + '"', t("이어하기"), "play") : '') +
     button(last ? "btn" : "btn primary", 'data-start="' + esc(story.id) + '"', t(last ? "새 회차 시작" : "대화 시작"), "arrow") +
     (story.previewTurns?.length ? button("btn", 'data-story-preview="open" aria-controls="story-preview"', t("예시 대화 보기"), "chatIcon") : "") +
-    '</div>' + storyPreview(story) + '</div>');
+    '</div>' + prologue(story, true) + storyPreview(story) + '</div>');
+}
+function prologue(story, expanded = false) {
+  if (!story.prologueImages?.length) return "";
+  return '<details class="prologue-comic"' + (expanded ? ' open' : '') + '><summary>' + t("프롤로그 웹툰") + '</summary>' +
+    story.prologueImages.map(card => image(card.file, t(card.label), "prologue-page")).join("") + '</details>';
+}
+function turnTiming(turn) {
+  const usage = turn.usage;
+  if (!usage) return "";
+  const stages = [["입력 해석", usage.interpretationMs], ["그래프 계산", usage.graphMs], ["대사 생성", usage.bedrockMs], ["상태 판정", usage.refereeMs], ["AgentCore 응답 대기", usage.agentCoreHeadersMs], ["응답 수신", usage.agentCoreBodyMs]];
+  return '<details class="turn-timing"><summary>' + t("처리 시간 보기") + '</summary><dl>' +
+    stages.filter(([, value]) => value !== undefined).map(([label, value]) => '<dt>' + t(label) + '</dt><dd>' + (value / 1000).toFixed(2) + t("초") + '</dd>').join("") +
+    (usage.reasoningTokens !== undefined ? '<dt>' + t("추론 토큰") + '</dt><dd>' + usage.reasoningTokens + '</dd>' : '') + '</dl><p>' + t("단계 시간은 중첩될 수 있습니다.") + '</p></details>';
+}
+function endingCard(narrative) {
+  if (!narrative?.ending) return "";
+  return '<section class="ending-card" role="status"><p class="kicker">ENDING</p><h2>' + esc(t(narrative.ending.title)) + '</h2><p>' + esc(t(narrative.ending.text)) + '</p><p class="caption">' + t("이 회차가 마무리되었습니다. 새 회차에서 다른 선택을 해보세요.") + '</p></section>';
 }
 function storyPreview(story) {
   if (!story.previewTurns?.length) return "";
@@ -138,14 +155,15 @@ function chatHistory(story, episode, pendingText) {
     return '<article class="turn"><div class="turn-player"><p>' + esc(turn.input) + '</p></div>' +
       (turn.mood !== "neutral" ? image(card.file, card.label, "scene-img") : "") +
       reply(story, turn.beats) + '<p class="turn-caption">' + esc(modelFor(turn.mode)) + ' · ' + (turn.timing / 1000).toFixed(1) + t("초") +
-      (turn.trustQuote ? ' <strong title="' + esc(turn.trustQuote) + '">' + t("신뢰도 +1") + '</strong>' : '') + '</p></article>';
+      (turn.trustQuote ? ' <strong title="' + esc(turn.trustQuote) + '">' + t("신뢰도 +1") + '</strong>' : '') + '</p>' + turnTiming(turn) + '</article>';
   }).join("");
   return '<div class="stream-wrap"><p class="opening-mark">' + icon("book") + ' ' + t("프롤로그") + '</p>' +
-    image(story.cards.neutral.file, story.cards.neutral.label, "scene-img", true) +
-    '<p class="opening-text">' + esc(story.prologue) + '</p>' + reply(story,[{kind:"speech",text:story.greeting}]) + body +
-    (pendingText ? '<div class="turn-player"><p>' + esc(pendingText) + '</p></div><p class="send-pending" role="status">' + esc(t("{name}의 다음 장면을 이어가는 중…", { name: story.character })) + '</p>' : '') + '</div>';
+    prologue(story) + image(story.cards.neutral.file, story.cards.neutral.label, "scene-img", true) +
+    '<p class="opening-text">' + esc(story.prologue) + '</p>' + reply(story,[{kind:"speech",text:story.greeting}]) + body + endingCard(episode.narrative) +
+    (pendingText ? '<div class="turn-player"><p>' + esc(pendingText) + '</p></div><p class="send-pending" role="status">' + esc(t("{name}의 다음 장면을 이어가는 중…", { name: story.character })) + ' <span data-pending-elapsed></span></p>' : '') + '</div>';
 }
 function statusPanel(story, episode) {
+  if (episode.narrative) return narrativePanel(story, episode);
   const stats = episode.stats;
   const card = cardFor(story, episode.turns.at(-1)?.mood);
   const event = episode.turns.at(-1)?.trustQuote;
@@ -163,9 +181,21 @@ function statusPanel(story, episode) {
     '<div class="status-foot">' + button("btn", 'data-gallery="open"', t("이미지 보관함"), "imageIcon") +
     button("btn", 'data-start="' + esc(story.id) + '"', t("새 회차"), "spark") + '</div>';
 }
+function narrativePanel(story, episode) {
+  const n = episode.narrative;
+  const clock = new Intl.DateTimeFormat(locale, {timeZone:"Asia/Seoul", month:"short", day:"numeric", weekday:"short", hour:"2-digit", minute:"2-digit", hour12:false}).format(new Date(n.time));
+  return iconButton('data-status="close"', "close", t("상태창 닫기"), "status-close") +
+    '<h2 id="status-heading">' + icon("statusIcon") + t("상태창") + '</h2>' +
+    image(story.cards.neutral.file, story.cards.neutral.label, "status-image", true) +
+    '<dl class="status-block"><dt>' + t("이야기 시간") + '</dt><dd>' + esc(clock) + ' · ' + t('{day}일차', {day:n.day}) + '</dd><dt>' + t("현재 장면") + '</dt><dd>' + esc(t(n.scene)) + '</dd><dt>' + t("장소") + '</dt><dd>' + esc(t(n.location)) + '</dd><dt>' + t("목표") + '</dt><dd>' + esc(t(n.objective)) + '</dd><dt>' + t("대화 턴") + '</dt><dd>' + n.turns + '</dd></dl>' +
+    n.counters.map(c => '<div class="status-block"><p class="stat-heading">' + esc(t(c.label)) + '<span class="stat-value">' + c.value + ' / ' + c.max + (c.unit === '%' ? '%' : '') + '</span></p><progress max="' + c.max + '" value="' + c.value + '" aria-label="' + esc(t(c.label)) + '"></progress></div>').join("") +
+    (n.ending ? '<div class="status-block"><p class="kicker">ENDING</p><strong>' + esc(t(n.ending.title)) + '</strong></div>' : n.gates.map(gate => '<div class="status-block"><p class="stat-heading">' + t("다음 장면") + '</p><p>' + esc(t(gate.label)) + '</p><p class="caption">' + esc(t("장면 대화 {actual}/{minimum}턴", {actual:n.sceneTurns, minimum:gate.minimumTurns})) + '</p>' + gate.conditions.map(c => '<p class="caption">' + esc(t(c.label)) + ' ' + (c.op === 'gte' ? '≥' : c.op === 'lte' ? '≤' : '=') + ' ' + c.value + ' · ' + t("현재") + ' ' + c.actual + '</p>').join("") + '<p class="status-change">' + t(gate.ready ? "준비 완료 · 원할 때 다음 행동을 선택하세요." : "함께 나눈 경험과 선택에 따라 열립니다.") + '</p></div>').join("")) +
+    '<p class="caption ending-count">' + t("발견할 수 있는 엔딩 {count}개", {count:n.endingCount}) + '</p><div class="status-foot">' + button("btn", 'data-gallery="open"', t("이미지 보관함"), "imageIcon") + button("btn", 'data-start="' + esc(story.id) + '"', t("새 회차"), "spark") + '</div>';
+}
 function suggestions(story, episode) {
+  if (episode.narrative?.ending) return "";
   const last = episode.turns.at(-1);
-  const picks = last && (last.responseLanguage ?? "ko") === locale ? last.suggestions : story.suggestions;
+  const picks = episode.narrative ? episode.narrative.suggestions.map(s => t(s)) : last && (last.responseLanguage ?? "ko") === locale && last.suggestions.length ? last.suggestions : story.suggestions;
   return picks.map(s => button("suggest", 'data-suggestion="' + esc(s) + '"', esc(s))).join("");
 }
 function chat(story, episode) {
@@ -183,6 +213,12 @@ function chat(story, episode) {
     '<label>' + t("모델") + ' <select id="model" aria-label="' + t("모델 선택") + '">' + groups + '</select></label><span class="keyhint">' + t("Enter 보내기 · Shift+Enter 줄바꿈") + '</span></div>' +
     '</div></form></div><aside id="story-status" aria-labelledby="status-heading" class="status-panel' + (statusOpen ? ' open' : '') + '">' + statusPanel(story,episode) + '</aside></div>');
   if (episode.turns.length) scrollChat();
+  setEnded(episode);
+}
+function setEnded(episode) {
+  if (!episode.narrative?.ending) return;
+  for (const element of document.querySelectorAll('#compose, #model, .send')) element.disabled = true;
+  document.querySelector('#compose').placeholder = t("회차가 마무리되었습니다.");
 }
 function scrollChat() {
   const feed = document.querySelector("#transcript");
@@ -258,7 +294,7 @@ async function deleteEpisode(id, trigger) {
 async function send() {
   if (!current) return;
   const { story, episode } = current;
-  if (pendingTurns.has(episode.id) || deletingEpisodes.has(episode.id)) return;
+  if (episode.narrative?.ending || pendingTurns.has(episode.id) || deletingEpisodes.has(episode.id)) return;
   const draft = document.querySelector("#compose"), select = document.querySelector("#model");
   const err = document.querySelector("#turn-error"), submit = document.querySelector(".send");
   const content = draft.value.trim();
@@ -270,6 +306,11 @@ async function send() {
   const feed = document.querySelector("#transcript");
   feed.innerHTML = chatHistory(story,episode,content);
   scrollChat();
+  const pendingStart = performance.now();
+  const elapsedTimer = setInterval(() => {
+    const elapsed = feed.querySelector("[data-pending-elapsed]");
+    if (elapsed) elapsed.textContent = ((performance.now() - pendingStart) / 1000).toFixed(1) + t("초");
+  }, 500);
   try {
     const updated = await api("episodes/" + episode.id + "/turn",{message:content,mode:select.value});
     upsertSession(updated);
@@ -285,12 +326,14 @@ async function send() {
     err.textContent = e.message;
     err.hidden = false;
   } finally {
+    clearInterval(elapsedTimer);
     pendingTurns.delete(episode.id);
     if (current?.episode.id === episode.id && draft.isConnected) {
       draft.disabled = select.disabled = submit.disabled = false;
       document.querySelector("#suggestions").hidden = false;
       scrollChat();
-      if (matchMedia("(pointer:fine)").matches) draft.focus({preventScroll:true});
+      setEnded(current.episode);
+      if (!draft.disabled && matchMedia("(pointer:fine)").matches) draft.focus({preventScroll:true});
     } else if (current?.episode.id === episode.id) {
       void renderRoute();
     }

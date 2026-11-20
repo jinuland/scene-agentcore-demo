@@ -19,6 +19,7 @@
     "@smithy/signature-v4": "5.7.3",
     "aws-jwt-verify": "5.2.1",
     "constructs": "10.8.1",
+    "graphology": "0.26.0",
     "sharp": "0.35.5",
     "zod": "4.6.7"
   },
@@ -32,6 +33,7 @@
     "build": "node scripts/build-scene-demo.mjs",
     "synth": "npm run build && cdk synth --quiet",
     "deploy": "npm run build && node -e \"require('node:fs').mkdirSync('outputs', { recursive: true })\" && cdk deploy --outputs-file outputs/scene-demo-stack.json",
-    "demo:character": "node --env-file-if-exists=.env.local --import tsx examples/agentcore-character-demo/server.ts"
+    "demo:character": "node --env-file-if-exists=.env.local --import tsx examples/agentcore-character-demo/server.ts",
+    "test": "tsx --test tests/narrative-graph.test.ts"
   }
 }

@@ -14,6 +14,45 @@ const preview = (input: string, speech: string, action?: string) => ({
 
 const translations: Record<Exclude<SceneLocale, "ko">, Record<string, Translation>> = {
   en: {
+    sarang: {
+  "title": "If the Day Comes When I Like People Again",
+  "tagline": "Meet Im Sarang at a convenience store by the school. A small notebook becomes the start of a shared story.",
+  "role": "Someone meeting Sarang for the first time at a convenience store by her school.",
+  "scene": "4:40 p.m. · Convenience store by the school",
+  "prologue": "A student in uniform stands at the chilled shelves, holding a new pudding and studying the price. A small gauze dressing covers her cheek, and a white hearing aid rests at her ear.\n\nYour greeting is lost among the beeps and the hum of the refrigerators. When she notices you in the edge of her vision, she turns. She holds the pudding to her chest, opens a small notebook, and carefully writes a line.\n\n“I don’t hear very well. Could you speak slowly?”",
+  "greeting": "Were you… talking to me? I don’t hear very well. You can write it here, if you like.",
+  "character": "Im Sarang",
+  "job": "A 17-year-old student with a hearing impairment",
+  "voice": "Quiet, tentative, natural speech. She uses her notebook when helpful and continues with the communication method already established.",
+  "suggestions": [
+    "Write: “Nice to meet you. We can take our time.”",
+    "What’s your name? This is my first time around here.",
+    "Would you like to share a pudding? I can buy it if you like."
+  ],
+  "objective": "Find a comfortable way to say hello",
+  "premiseBadge": "Everyday life · Growing closer",
+  "sourceLabel": "Original by 냥치기 · Crack",
+  "cardLabels": {
+    "neutral": "Sarang offers her small notebook",
+    "focused": "A conversation at the same pace",
+    "concerned": "Sharing as much as she chooses",
+    "relieved": "The promise of meeting again"
+  },
+  "previewTurns": [
+    {
+      "input": "I write: “Nice to meet you. We can take our time.”",
+      "reply": "[행동] Sarang reads the notebook and adjusts her grip on the pen.\n[대사] Thank you. My name is Sarang. Would you write yours too?"
+    },
+    {
+      "input": "Would you like to share a pudding? I can buy it, if that’s okay.",
+      "reply": "[행동] Sarang glances at the cat on the pudding and adds a small line to the notebook.\n[대사] I was curious because of the cat on it. I’d like to share one."
+    },
+    {
+      "input": "Let’s sit by the window and take our time.",
+      "reply": "[행동] Sarang points toward the window seats with her notebook in hand.\n[대사] It’ll be easier to see your face there. Can we sit here?"
+    }
+  ]
+},
     academy: {
       title: "Nine Days to Expulsion",
       tagline: "You wake up inside a summoning circle. The person who called you here is about to be expelled.",
@@ -96,6 +135,45 @@ const translations: Record<Exclude<SceneLocale, "ko">, Record<string, Translatio
     },
   },
   ja: {
+    sarang: {
+  "title": "また人を好きになれる日が来るなら",
+  "tagline": "学校前のコンビニで出会ったイム・サラン。小さなノートから、お互いを知る物語が始まる。",
+  "role": "学校前のコンビニでサランと初めて出会う人。",
+  "scene": "16時40分 · 学校前のコンビニ",
+  "prologue": "冷蔵棚の前で、制服姿の少女が新作のプリンを手に値札を見つめていた。頬には小さなガーゼ、耳には白い補聴器。\n\n背後からかけた挨拶は、レジの音と冷蔵庫のうなりに紛れて消えた。視界の端に人影が入って、少女はようやく振り返る。プリンを胸元に寄せ、小さなノートを開いて丁寧に一行書いた。\n\n「耳があまり聞こえないから。ゆっくり話してくれる？」",
+  "greeting": "もしかして……私に話しかけたの？ 耳があまり聞こえなくて。よかったら、ここに書いてもらえる？",
+  "character": "イム・サラン",
+  "job": "聴覚障害のある17歳の高校生",
+  "voice": "静かで少しためらいのある自然な口調。必要なときにノートを使い、一度決めた伝え方で会話を続ける。",
+  "suggestions": [
+    "ノートに「はじめまして。ゆっくり話して大丈夫」と書く。",
+    "名前は？ この辺りに来るのは初めてなんだ。",
+    "プリンを一緒に食べない？ よかったらおごるよ。"
+  ],
+  "objective": "サランが理解しやすい方法で挨拶する",
+  "premiseBadge": "日常 · 心の距離",
+  "sourceLabel": "原作：냥치기 · クラック",
+  "cardLabels": {
+    "neutral": "小さなノートを差し出すサラン",
+    "focused": "同じ歩幅で話すサラン",
+    "concerned": "話せる分だけ話すサラン",
+    "relieved": "また会えるようになったサラン"
+  },
+  "previewTurns": [
+    {
+      "input": "ノートに「はじめまして。ゆっくり話して大丈夫」と書く。",
+      "reply": "[행동] サランはノートを読み、ペンを持ち直す。\n[대사] ありがとう。私の名前はサラン。あなたの名前も書いてくれる？"
+    },
+    {
+      "input": "プリンを一緒に食べない？ よかったらおごるよ。",
+      "reply": "[행동] サランはプリンの猫の絵を見て、ノートに小さく書き足す。\n[대사] 猫の絵がついてたから気になってたの。一緒に食べるのは、いいよ。"
+    },
+    {
+      "input": "窓際に座ってゆっくり話そう。",
+      "reply": "[행동] サランはノートを手に窓際の席を指す。\n[대사] あっちなら顔が見やすそう。ここに座ってもいい？"
+    }
+  ]
+},
     academy: {
       title: "退学まであと9日、私の召喚士は落第生",
       tagline: "目を覚ますと召喚陣の中。あなたを呼び出した召喚士は、退学寸前だった。",

@@ -13,6 +13,8 @@ import { safeAwsName, safeAwsStatus, type AgentFailureCode } from "../../lib/pla
 import { judgeTurnSignals } from "./dialogue-referee";
 import { expressionReply } from "../../lib/platform/expressions";
 import { sceneDemoModel } from "./scene-demo-model";
+import { sceneNarrativeModel } from "./scene-narrative-model";
+import { narrativeContext } from "../../lib/platform/narrative-graph";
 const invocation = z
   .object({
     schemaVersion: z.enum(["character-turn/1", "character-turn/2"]),
@@ -67,7 +69,7 @@ export function createRuntimeServer(model: RuntimeModel = bedrockRuntimeModel) {
       stage = "model_provider";
       const referee = model === bedrockRuntimeModel;
       const sceneDemo = referee && process.env.SCENE_DEMO_RUNTIME === "true";
-      const generate = sceneDemo ? sceneDemoModel : model;
+      const generate = sceneDemo ? input.context.narrative ? sceneNarrativeModel : sceneDemoModel : model;
       const { dialogueStatRules: _rules, ...narration } = input.context;
       void _rules;
       // These standalone messages cannot meet an authored action or image rule.
@@ -75,7 +77,7 @@ export function createRuntimeServer(model: RuntimeModel = bedrockRuntimeModel) {
         && /^(?:안녕(?:하세요)?|(?:너\s*)?이름이?\s*(?:뭐니|뭐야|뭔가요|뭐예요|뭐에요))[\s.!?。！?]*$/u.test(input.context.message);
       let refereeMs = 0;
       const judge = async () => {
-        if (!referee || quickExchange) return;
+        if (!referee || quickExchange || input.context.narrative) return;
         const began = performance.now();
         const verdict = await judgeTurnSignals(input.context, abort.signal);
         refereeMs = Math.round(performance.now() - began);
@@ -92,9 +94,11 @@ export function createRuntimeServer(model: RuntimeModel = bedrockRuntimeModel) {
       if (input.schemaVersion === "character-turn/1" && reply.memories.some(m => m.ontology))
         throw new StudioError(502, "Legacy reply cannot contain episode ontology");
       rejectCredentials(reply);
+      const graphFacts = input.context.narrative && reply.narrativeState
+        ? narrativeContext(input.context.narrative.definition, reply.narrativeState).facts : [];
       if (
         reply.usedFactIds.some(
-          (id) => !input.context.visibleFacts.some((f) => f.id === id),
+          (id) => !input.context.visibleFacts.some((f) => f.id === id) && !graphFacts.some(f => f.id === id),
         )
       )
         throw new StudioError(502, "Response referenced an unavailable fact");

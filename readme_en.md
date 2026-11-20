@@ -2,7 +2,9 @@
 
 [한국어](README.md) · [English](readme_en.md)
 
-SCENE is a character chat demo built with Amazon Bedrock AgentCore. The repository includes the web app, Lambda API, AgentCore Runtime, story artwork, CDK infrastructure, and a dependency lockfile. Each of the four built-in stories includes a three-turn conversation preview. **My Chats** lists episodes started in the current browser.
+[Download deployment source ZIP](https://github.com/jinuland/scene-agentcore-demo/raw/refs/heads/main/downloads/scene-aws-deploy.zip)
+
+SCENE is a character chat demo built with Amazon Bedrock AgentCore. The repository includes the web app, Lambda API, AgentCore Runtime, story artwork, CDK infrastructure, and a dependency lockfile. Each of the five built-in stories includes a three-turn conversation preview. **My Chats** lists episodes started in the current browser.
 
 [English demo](https://d3ib5121x21g7w.cloudfront.net/?lang=en) · [日本語デモ](https://d3ib5121x21g7w.cloudfront.net/?lang=ja) · [한국어 데모](https://d3ib5121x21g7w.cloudfront.net/?lang=ko)
 
@@ -55,3 +57,17 @@ AWS_PROFILE=customer-demo npm run demo:character
 CloudFront uses Origin Access Control to call the IAM-protected Lambda Function URL. Lambda serves the app and reads and writes stories, messages, and episode state in DynamoDB. The Node.js runtime on AgentCore sends story rules and conversation context to Amazon Bedrock, then validates the dialogue and state decisions returned by the models. [Restrict access to Lambda origins with CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html)
 
 See the [demo notes in Korean](examples/agentcore-character-demo/README.md) for story and artwork credits and details about the model calls.
+
+## Story graph and episode state
+
+The new story **If the Day Comes When I Like People Again** includes a cover, scene illustration, four-panel prologue comic and three sample exchanges. Its public setting and introduction are reused with permission from the original work by 냥치기 on Crack. New artwork was generated using the authorized original as a reference. The original private rules were not supplied; this demo defines its own six scenes and three endings.
+
+The authored definition is in `examples/agentcore-character-demo/sarang-story.ts`, and the reusable engine is in `lib/platform/narrative-graph.ts`. Graphology builds an in-memory graph of Scene, Fact, Action, Counter, Transition, Gate and Ending nodes, linked by ALLOWS, CHANGES, REQUIRES, READS and OPENS edges. Only facts whose gates pass are sent to the dialogue model. The story progresses from the store meeting through a window-seat conversation, a walk, a next-day reunion, a park conversation and a support plan. Transitions combine affection (0–200%), communication counts, one-time events, minimum scene turns and the player's expressed intent. The endings are “Until next time”, “At our own pace” and “A new step”.
+
+Each turn runs **Haiku input interpretation → deterministic graph update → selected dialogue model → persistence**. The interpreter selects authored action/transition IDs with exact evidence from the current message. Code calculates counters, time, movement and endings. There is no additional LLM review or regeneration pass. The API replays the proposed state with the same rules and commits the dialogue and state under the existing episode lock. Failed turns do not advance saved progress.
+
+Each episode pins its definition and release hash and stores its scene, clock, counters and event/transition history. The in-memory graph is reconstructed from this durable snapshot on the next request. Cloud deployments store it in DynamoDB; the local web API uses SQLite WAL in its own data directory, rather than the AgentCore temporary filesystem. Shared-room UI, automatic graph authoring from free text and embedding-based memory search are outside this demo. The graph and the recent dialogue/evidence memories passed to the model are separate data.
+
+The status panel shows date, story day, scene, affection and next-scene requirements. **View timings** shows interpretation, graph calculation and dialogue generation times. AgentCore response wait includes model execution and overlaps the other stages. Ended episodes remain readable; starting a new episode allows different choices.
+
+Run `npm test` in the deployment package to check gates, counter bounds, all three reachable endings, deterministic state replay, release identity after JSON decoding, SQLite restoration and owner-scoped deletion.

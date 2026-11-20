@@ -75,7 +75,10 @@ async function limit<T>(fn: () => Promise<T>) {
   const now = Date.now();
   while (recentCalls.length && recentCalls[0] < now - 60_000)
     recentCalls.shift();
-  if (activeCalls >= 2 || recentCalls.length >= 12)
+  // Hosted SCENE already charges a daily API turn quota. Its two-stage turns
+  // must not exhaust the editor's twelve-call allowance after six exchanges.
+  const minuteLimit = process.env.SCENE_DEMO_RUNTIME === "true" ? 60 : 12;
+  if (activeCalls >= 2 || recentCalls.length >= minuteLimit)
     throw new StudioError(
       429,
       "모델 요청이 많습니다. 잠시 후 다시 시도해주세요.",
