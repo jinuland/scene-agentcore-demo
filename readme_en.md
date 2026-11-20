@@ -71,3 +71,10 @@ Each episode pins its definition and release hash and stores its scene, clock, c
 The status panel shows date, story day, scene, affection and next-scene requirements. **View timings** shows interpretation, graph calculation and dialogue generation times. AgentCore response wait includes model execution and overlaps the other stages. Ended episodes remain readable; starting a new episode allows different choices.
 
 Run `npm test` in the deployment package to check gates, counter bounds, all three reachable endings, deterministic state replay, release identity after JSON decoding, SQLite restoration and owner-scoped deletion.
+
+## Verification · 2026-11-20
+
+- All 35 regression checks passed. A separate installation from the ZIP passed nine graph tests and the build. State verification accepts DynamoDB map key reordering while rejecting altered counters or event history.
+- A local Runtime HTTP test using real Bedrock models reached all six scenes and the “A new step” ending in 12 exchanges. Automated tests also cover reachability of the other two endings.
+- The public deployment returned usable replies with GPT-6 Luna, Grok 4.3, Claude Haiku 5.5, Gemma 4 31B and Gemma 4 E2B, and restored saved episodes. English and Japanese responses and UI were checked. This new-story test does not guarantee dialogue quality for all 13 selectable models.
+- Two browser exchanges using Grok 4.3 took 5.0 and 6.4 seconds. Affection advanced 10→14→22, the scene moved to the window seats, and a reload restored both exchanges and state. Test episodes were deleted. Timing varies with the model and cold starts.
