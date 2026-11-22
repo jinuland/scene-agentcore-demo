@@ -5,6 +5,9 @@ try { saved = localStorage.getItem("scene.language"); } catch { /* Optional pref
 export const locale = languages.includes(requested) ? requested : languages.includes(saved) ? saved : "ko";
 
 const copy = {
+  "서비스 첫 대사": ["First dialogue at service", "サービスの最初のセリフ"],
+  "Bedrock 첫 텍스트": ["First Bedrock text", "Bedrock の最初のテキスト"],
+  "응답을 완성하지 못했습니다. 저장 상태를 확인하고 다시 시도해 주세요.": ["The reply did not finish. Check the saved conversation and try again.", "返答が完了しませんでした。保存された会話を確認して、もう一度お試しください。"],
   "다음 날, 약속한 편의점으로 다시 찾아왔다.": ["The next day, I return to the store as promised.", "翌日、約束したコンビニを再び訪れた。"],
   "사랑은 자신이 원하는 도움의 방법을 골라 노트에 적었다. 두 사람은 믿을 만한 성인에게 함께 이야기할 준비와 다시 만날 약속을 정한다. 모든 문제가 끝난 것은 아니지만, 사랑에게 자기 선택을 함께 지켜줄 사람이 생겼다.": ["Sarang writes down the kind of support she wants. Together, you prepare to speak with a trusted adult and arrange to meet again. The problems are not all solved, but she now has someone who will stand beside the choices she makes.", "サランは自分が望む助けをノートに書いた。二人は信頼できる大人に一緒に話す準備をし、また会う約束をする。すべてが解決したわけではないが、自分の選択を一緒に守ってくれる人ができた。"],
   "사랑은 다음에도 친구로서 만나자는 뜻을 자기 글씨로 남겼다. 두 사람은 서두르지 않고 일상을 나누기로 한다. 처음의 낯선 침묵은 편하게 함께 있을 수 있는 시간으로 바뀌었다.": ["Sarang leaves a note saying she would like to meet again as friends. You agree to share ordinary days at your own pace. The unfamiliar silence of your first meeting has become time you can spend comfortably together.", "サランはこれからも友達として会いたいと自分の字で残した。二人は急がず日常を分かち合うことにする。最初のよそよそしい沈黙は、安心して一緒にいられる時間に変わっていた。"],
@@ -12,7 +15,11 @@ const copy = {
 
   "프롤로그 웹툰": ["Prologue comic", "プロローグ漫画"],
   "처리 시간 보기": ["View timings", "処理時間を見る"],
+  "기억·상태 보조 처리": ["Memory and state helpers", "記憶・状態の補助処理"],
   "입력 해석": ["Input interpretation", "入力の解釈"],
+  "상태 규칙 계산": ["State rule calculation", "状態ルールの計算"],
+  "AgentCore 스트림 연결": ["AgentCore stream connection", "AgentCore ストリーム接続"],
+  "AgentCore 스트림 수신": ["AgentCore stream reception", "AgentCore ストリーム受信"],
   "그래프 계산": ["Graph update", "グラフの更新"],
   "대사 생성": ["Dialogue generation", "セリフの生成"],
   "상태 판정": ["State evaluation", "状態判定"],

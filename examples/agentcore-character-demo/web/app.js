@@ -19,11 +19,11 @@ const rememberedModel = () => {
   let id; try { id = localStorage.getItem("scene.model"); } catch { /* Optional preference */ }
   return library.models.some(model => model.id === id) ? id : library.defaultModel;
 };
-async function api(path, data) {
+async function api(path, data, onDelta) {
   let init;
   if (data !== undefined) {
     const body = JSON.stringify(data);
-    const headers = {"Content-Type":"application/json"};
+    const headers = {"Content-Type":"application/json", ...(onDelta ? {Accept:"text/event-stream"} : {})};
     if (location.protocol === "https:") {
       const bytes = new TextEncoder().encode(body);
       const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -32,6 +32,30 @@ async function api(path, data) {
     init = {method:"POST", headers, body};
   }
   const response = await fetch("/api/" + path + "?lang=" + locale, init);
+  if (onDelta && response.ok && response.headers.get("content-type")?.includes("text/event-stream")) {
+    const reader = response.body.getReader(), decoder = new TextDecoder();
+    let buffer = "", committed;
+    for (;;) {
+      const {value,done} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value,{stream:true});
+      if (buffer.length > 1000000) throw new Error(t("요청을 완료할 수 없습니다."));
+      let match;
+      while ((match = /\r?\n\r?\n/u.exec(buffer))) {
+        const frame = buffer.slice(0,match.index); buffer = buffer.slice(match.index+match[0].length);
+        const lines = frame.split(/\r?\n/u);
+        const event = lines.find(line=>line.startsWith("event:"))?.slice(6).trim();
+        const raw = lines.filter(line=>line.startsWith("data:")).map(line=>line.slice(5).trimStart()).join("\n");
+        if (!raw) continue;
+        const payload = JSON.parse(raw);
+        if (event === "dialogue.delta") onDelta(payload.text);
+        if (event === "turn.error") throw new Error(t(payload.error));
+        if (event === "state.committed") committed = payload.episode;
+      }
+    }
+    if (!committed) throw new Error(t("응답을 완성하지 못했습니다. 저장 상태를 확인하고 다시 시도해 주세요."));
+    return committed;
+  }
   const payload = await response.json();
   if (!response.ok) {
     const error = new Error(t(payload.error || "요청을 완료할 수 없습니다."));
@@ -101,7 +125,7 @@ function prologue(story, expanded = false) {
 function turnTiming(turn) {
   const usage = turn.usage;
   if (!usage) return "";
-  const stages = [["입력 해석", usage.interpretationMs], ["그래프 계산", usage.graphMs], ["대사 생성", usage.bedrockMs], ["상태 판정", usage.refereeMs], ["AgentCore 응답 대기", usage.agentCoreHeadersMs], ["응답 수신", usage.agentCoreBodyMs]];
+  const stages = [["서비스 첫 대사", usage.serviceFirstContentMs], ["Bedrock 첫 텍스트", usage.firstContentMs], ["기억·상태 보조 처리", usage.metadataMs], ["입력 해석", usage.interpretationMs], ["상태 규칙 계산", usage.graphMs], ["대사 생성", usage.bedrockMs], ["상태 판정", usage.refereeMs], [usage.serviceFirstContentMs === undefined ? "AgentCore 응답 대기" : "AgentCore 스트림 연결", usage.agentCoreHeadersMs], [usage.serviceFirstContentMs === undefined ? "응답 수신" : "AgentCore 스트림 수신", usage.agentCoreBodyMs]];
   return '<details class="turn-timing"><summary>' + t("처리 시간 보기") + '</summary><dl>' +
     stages.filter(([, value]) => value !== undefined).map(([label, value]) => '<dt>' + t(label) + '</dt><dd>' + (value / 1000).toFixed(2) + t("초") + '</dd>').join("") +
     (usage.reasoningTokens !== undefined ? '<dt>' + t("추론 토큰") + '</dt><dd>' + usage.reasoningTokens + '</dd>' : '') + '</dl><p>' + t("단계 시간은 중첩될 수 있습니다.") + '</p></details>';
@@ -312,7 +336,28 @@ async function send() {
     if (elapsed) elapsed.textContent = ((performance.now() - pendingStart) / 1000).toFixed(1) + t("초");
   }, 500);
   try {
-    const updated = await api("episodes/" + episode.id + "/turn",{message:content,mode:select.value});
+    const requestId = draft.dataset.requestText === content && draft.dataset.requestMode === select.value
+      ? draft.dataset.requestId : crypto.randomUUID();
+    draft.dataset.requestId = requestId;
+    draft.dataset.requestText = content;
+    draft.dataset.requestMode = select.value;
+    let liveText = "", live;
+    const updated = await api("episodes/" + episode.id + "/turn",{message:content,mode:select.value,requestId}, text => {
+      if (current?.episode.id !== episode.id) return;
+      if (!live) {
+        const pending = feed.querySelector(".send-pending");
+        const article = document.createElement("div");
+        article.className = "turn-character live-dialogue";
+        article.innerHTML = '<strong>' + esc(story.character) + '</strong><p class="beat beat-speech" data-live-dialogue></p>';
+        pending?.replaceWith(article);
+        live = article.querySelector("[data-live-dialogue]");
+      }
+      liveText += text;
+      const visible = liveText.replace(/\[(?:대사|행동|장면|묘사|Action|Dialogue|Scene|Narration|行動|台詞|セリフ|場面|描写)\]\s*/giu, "").replace(/\[[^\]\n]{0,20}$/u, "");
+      live.textContent = visible;
+      if (visible.trim() && !live.dataset.firstPaintMs) live.dataset.firstPaintMs = String(Math.round(performance.now()-pendingStart));
+      scrollChat();
+    });
     upsertSession(updated);
     if (current?.episode.id !== episode.id) return;
     current.episode = updated;
@@ -320,6 +365,9 @@ async function send() {
     document.querySelector("#story-status").innerHTML = statusPanel(story,updated);
     document.querySelector("#suggestions").innerHTML = suggestions(story,updated);
     draft.value = "";
+    delete draft.dataset.requestId;
+    delete draft.dataset.requestText;
+    delete draft.dataset.requestMode;
   } catch (e) {
     if (current?.episode.id !== episode.id) return;
     feed.innerHTML = chatHistory(story,episode);

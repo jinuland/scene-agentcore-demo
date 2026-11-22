@@ -159,7 +159,7 @@ export async function structured<T>(
   strictTool = false,
   toolSchema: z.ZodType = schema,
   serverModelId?: string,
-  chatTransport?: { converseAuto?: boolean; grokJson?: boolean; mantleRegion?: string },
+  chatTransport?: { converseAuto?: boolean; grokJson?: boolean; mantleRegion?: string; thinking?: "disabled" | "adaptive" | "between_tools"; effort?: "low" | "medium" | "high" },
 ) {
   const config = configuration();
   const modelId = serverModelId ?? config.model;
@@ -181,6 +181,8 @@ export async function structured<T>(
         { role: "user" as const, content: [{ text: JSON.stringify(input) }] },
       ],
       inferenceConfig: { maxTokens, ...(!chatTransport?.converseAuto && !chatTransport?.grokJson ? { temperature: 0.6 } : {}) },
+      ...(chatTransport?.thinking ? { additionalModelRequestFields: { thinking: { type: chatTransport.thinking },
+        ...(chatTransport.effort ? { output_config: { effort: chatTransport.effort } } : {}) } } : {}),
       ...(chatTransport?.grokJson ? { additionalModelRequestFields: { reasoning: { effort: "low" } },
         outputConfig: { textFormat: { type: "json_schema", structure: { jsonSchema: { name: "story_result", schema: JSON.stringify(strictToolSchema(jsonSchema)) } } } },
       } : { toolConfig: {

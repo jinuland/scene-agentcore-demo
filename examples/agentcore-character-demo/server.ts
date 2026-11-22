@@ -67,7 +67,14 @@ createServer(async (req, res) => {
     const response = await handle(new Request(url, {
       method: req.method, headers, body: chunks.length ? Uint8Array.from(Buffer.concat(chunks)) : undefined, signal: abort.signal,
     }));
-    if (!res.destroyed) res.writeHead(response.status, Object.fromEntries(response.headers)).end(Buffer.from(await response.arrayBuffer()));
+    if (!res.destroyed) {
+      res.writeHead(response.status, Object.fromEntries(response.headers));
+      if (response.body) for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+        if (res.destroyed) break;
+        res.write(chunk);
+      }
+      res.end();
+    }
   } catch {
     if (!res.destroyed) res.writeHead(400).end();
   }

@@ -7,6 +7,8 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as secrets from "aws-cdk-lib/aws-secretsmanager";
+import * as sources from "aws-cdk-lib/aws-lambda-event-sources";
+import * as sqs from "aws-cdk-lib/aws-sqs";
 import { mantleDialogueModels, mantleRegionSchema, playerDialogueModels } from "../lib/platform/dialogue-modes";
 
 const app = new cdk.App();
@@ -44,7 +46,7 @@ if (!(runtimeResource instanceof agentcore.CfnRuntime)) throw new Error("AgentCo
 runtimeResource.platformVersion = "V2";
 
 runtime.grantPrincipal.addToPrincipalPolicy(new iam.PolicyStatement({
-  actions: ["bedrock:InvokeModel"],
+  actions: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
   resources: [
     `arn:${stack.partition}:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6`,
     `arn:${stack.partition}:bedrock:${stack.region}:${stack.account}:inference-profile/${modelId}`,
@@ -66,8 +68,24 @@ const data = new dynamodb.Table(stack, "DemoData", {
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
   encryption: dynamodb.TableEncryption.AWS_MANAGED,
   timeToLiveAttribute: "expires",
+  stream: dynamodb.StreamViewType.KEYS_ONLY,
   removalPolicy: cdk.RemovalPolicy.DESTROY,
 });
+const projectionFailures = new sqs.Queue(stack, "ProjectionFailures", { retentionPeriod: cdk.Duration.days(14) });
+const projector = new lambda.Function(stack, "GraphProjector", {
+  runtime: lambda.Runtime.NODEJS_24_X,
+  code: lambda.Code.fromAsset(".studio/scene-demo-build/projector"), handler: "index.handler",
+  timeout: cdk.Duration.seconds(30), memorySize: 512,
+  environment: { CHARACTER_DEMO_TABLE: data.tableName },
+  logGroup: new logs.LogGroup(stack, "ProjectionLogs", { retention: logs.RetentionDays.ONE_WEEK, removalPolicy: cdk.RemovalPolicy.DESTROY }),
+});
+data.grant(projector, "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:ConditionCheckItem");
+projector.addEventSource(new sources.DynamoEventSource(data, {
+  startingPosition: lambda.StartingPosition.TRIM_HORIZON, batchSize: 10,
+  retryAttempts: 5, bisectBatchOnError: true, reportBatchItemFailures: true,
+  onFailure: new sources.SqsDlq(projectionFailures),
+  filters: [lambda.FilterCriteria.filter({ dynamodb: { Keys: { record: { S: lambda.FilterRule.beginsWith("episode#") } } } })],
+}));
 const secret = new secrets.Secret(stack, "DemoAccess", {
   generateSecretString: { passwordLength: 16, excludePunctuation: true },
 });
@@ -76,7 +94,7 @@ const web = new lambda.Function(stack, "SceneWeb", {
   runtime: lambda.Runtime.NODEJS_24_X,
   code: lambda.Code.fromAsset(".studio/scene-demo-build/web"),
   handler: "index.handler",
-  timeout: cdk.Duration.seconds(90),
+  timeout: cdk.Duration.seconds(120),
   memorySize: 512,
   reservedConcurrentExecutions: 10,
   logGroup,
@@ -94,7 +112,7 @@ web.addToRolePolicy(new iam.PolicyStatement({
   actions: ["bedrock-agentcore:InvokeAgentRuntime"],
   resources: [runtime.agentRuntimeArn, `${runtime.agentRuntimeArn}/runtime-endpoint/DEFAULT`],
 }));
-const url = web.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.AWS_IAM });
+const url = web.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.AWS_IAM, invokeMode: lambda.InvokeMode.RESPONSE_STREAM });
 // The origin request uses the Lambda hostname for SigV4. Save the actual
 // viewer hostname in a header CloudFront overwrites before forwarding.
 const viewerHost = new cloudfront.Function(stack, "ViewerHost", {
@@ -131,3 +149,5 @@ new cdk.CfnOutput(stack, "DistributionId", { value: distribution.distributionId 
 new cdk.CfnOutput(stack, "AccessSecretArn", { value: secret.secretArn });
 new cdk.CfnOutput(stack, "AgentRuntimeArn", { value: runtime.agentRuntimeArn });
 new cdk.CfnOutput(stack, "WebLogGroup", { value: logGroup.logGroupName });
+new cdk.CfnOutput(stack, "DataTableName", { value: data.tableName });
+new cdk.CfnOutput(stack, "GraphProjectorName", { value: projector.functionName });

@@ -58,17 +58,50 @@ CloudFront uses Origin Access Control to call the IAM-protected Lambda Function 
 
 See the [demo notes in Korean](examples/agentcore-character-demo/README.md) for story and artwork credits and details about the model calls.
 
+## Streaming and asynchronous graph projection · 2026-11-22
+
+**Claude Sonnet 5.5** is the default; 14 models including Sonnet 5 are selectable. Plain dialogue deltas stream end to end through Bedrock, AgentCore SSE, Lambda RESPONSE_STREAM and the browser. JSON frames individual SSE events and compact metadata; it no longer buffers a complete dialogue object.
+
+```mermaid
+flowchart LR
+  U[Browser] <-->|HTTPS / dialogue SSE| CF[Amazon CloudFront]
+  CF <-->|OAC / IAM| W[AWS Lambda Web RESPONSE_STREAM]
+  W <-->|SSE| R[Amazon Bedrock AgentCore Runtime]
+  R <-->|ConverseStream / Mantle SSE| M[Amazon Bedrock]
+  W <-->|Atomic dialogue + latest state| D[(Amazon DynamoDB)]
+  D --> S[DynamoDB Streams]
+  S --> P[AWS Lambda GraphProjector]
+  P -->|Versioned write| G[(graph# projection in same table)]
+  P -. Retry exhaustion .-> Q[Amazon SQS failure queue]
+```
+
+The AWS icon image above shows the basic request path; this diagram adds the asynchronous projection. For graph-authored stories, input interpretation and deterministic gates/counters run before dialogue. The actor receives the resulting scene, accepted transition and actions. Only materializing the full graph read model is deferred. Deferring the canonical decision itself would allow dialogue and INFO to disagree.
+
+Dialogue, latest state and evidence memories commit together before `state.committed` updates INFO. Subsequent turns read this authoritative snapshot. A DynamoDB Streams consumer reads the latest snapshot and updates `graph#episode` asynchronously using conditional versions, retries and an SQS failure queue. It tolerates duplicates and older batches. Local SQLite persists the projection job in the same transaction and resumes unfinished jobs after restart. Neither mode depends on a final Runtime shutdown hook.
+
+A repeated `requestId` returns the committed reply. Partial streams and model failures do not advance saved state. Episode leases and conditional writes prevent duplicate commits. Text shown during generation is provisional until the save acknowledgement. For stories without an authored graph, memory extraction and stat judging run alongside dialogue. No extra LLM review/regeneration pass was added.
+
+**Timing labels:** Bedrock first text measures Runtime-side model request → first text delta. Service first dialogue measures web-service Runtime invocation → first delta received. These are nested measurements, not additive stages. Browser paint and durable completion are distinct. None is an absolute Bedrock-engine execution timestamp.
+
+**Options:** Sonnet 5 uses disabled thinking; Sonnet 5.5 uses between_tools with default high effort. Adaptive lets the model choose reasoning dynamically. Between_tools skips up-front thinking at high effort or below while allowing thinking between tools. The dialogue path exposes no executable tools. Effort controls overall response token use and thoroughness, not just reasoning, so it is separate from thinking type. [AWS Sonnet 5.5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5-5.html), [Adaptive thinking](https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-adaptive-thinking.html), [Effort](https://platform.claude.com/docs/en/build-with-claude/effort)
+
+GPT-6 Luna and GPT-6.1 Terra use none reasoning after successful live tests. Sol/Astra rejected the tested none requests and retain low. Haiku dialogue uses adaptive/low; interpretation, memory and stat helper calls use disabled/low. Verify model/account/region support when deploying.
+
+See the [customer benchmark guide (Korean)](docs/streaming-benchmark-20261122.md) for measurements, quality examples and limits. User conversations, cookies, live databases and private benchmark episode links are excluded from the source ZIP.
+
 ## Story graph and episode state
 
 The new story **If the Day Comes When I Like People Again** includes a cover, scene illustration, four-panel prologue comic and three sample exchanges. Its public setting and introduction are reused with permission from the original work by 냥치기 on Crack. New artwork was generated using the authorized original as a reference. The original private rules were not supplied; this demo defines its own six scenes and three endings.
 
-The authored definition is in `examples/agentcore-character-demo/sarang-story.ts`, and the reusable engine is in `lib/platform/narrative-graph.ts`. Graphology builds an in-memory graph of Scene, Fact, Action, Counter, Transition, Gate and Ending nodes, linked by ALLOWS, CHANGES, REQUIRES, READS and OPENS edges. Only facts whose gates pass are sent to the dialogue model. The story progresses from the store meeting through a window-seat conversation, a walk, a next-day reunion, a park conversation and a support plan. Transitions combine affection (0–200%), communication counts, one-time events, minimum scene turns and the player's expressed intent. The endings are “Until next time”, “At our own pace” and “A new step”.
+The authored definition is in `examples/agentcore-character-demo/sarang-story.ts`, and the reusable engine is in `lib/platform/narrative-graph.ts`. Graphology builds an in-memory graph of Scene, Fact, Action, Counter, Transition, Gate and Ending nodes, linked by ALLOWS, CHANGES, REQUIRES, READS, OPENS and REQUESTS_TRANSITION edges. Only facts whose gates pass are sent to the dialogue model. The story progresses from the store meeting through a window-seat conversation, a walk, a next-day reunion, a park conversation and a support plan. Transitions combine affection (0–200%), communication counts, one-time events, minimum scene turns and the player's expressed intent. The endings are “Until next time”, “At our own pace” and “A new step”.
 
-Each turn runs **Haiku input interpretation → deterministic graph update → selected dialogue model → persistence**. The interpreter selects authored action/transition IDs with exact evidence from the current message. Code calculates counters, time, movement and endings. There is no additional LLM review or regeneration pass. The API replays the proposed state with the same rules and commits the dialogue and state under the existing episode lock. Failed turns do not advance saved progress.
+Each turn runs **Haiku interpretation → deterministic state rules → streamed dialogue → canonical commit → asynchronous graph projection**. The interpreter selects authored action/transition IDs with exact evidence from the current message. Code calculates counters, time, movement and endings. There is no additional LLM review or regeneration pass. The API replays the proposed state with the same rules and commits the dialogue and state under the existing episode lock. Failed turns do not advance saved progress.
+
+Authors may set an action's optional `opensTransition`. For example, an accepted `walk-together` action requests `walk-home`; code still checks exact input evidence, counters and minimum scene turns. This avoids losing a transition merely because the interpreter omitted a separate transition ID. Conflicting destinations are not chosen automatically. These are authored JSON rules, not automatic graph generation in the story form. New Sarang episodes use definition v2; existing episodes retain their pinned definition.
 
 Each episode pins its definition and release hash and stores its scene, clock, counters and event/transition history. The in-memory graph is reconstructed from this durable snapshot on the next request. Cloud deployments store it in DynamoDB; the local web API uses SQLite WAL in its own data directory, rather than the AgentCore temporary filesystem. Shared-room UI, automatic graph authoring from free text and embedding-based memory search are outside this demo. The graph and the recent dialogue/evidence memories passed to the model are separate data.
 
-The status panel shows date, story day, scene, affection and next-scene requirements. **View timings** shows interpretation, graph calculation and dialogue generation times. AgentCore response wait includes model execution and overlaps the other stages. Ended episodes remain readable; starting a new episode allows different choices.
+The status panel shows date, story day, scene, affection and next-scene requirements. **View timings** shows interpretation, state rule calculation and dialogue generation times. Stream connection ends at Runtime response headers; stream reception ends at Runtime completion and overlaps interpretation/model execution. Ended episodes remain readable; starting a new episode allows different choices.
 
 Run `npm test` in the deployment package to check gates, counter bounds, all three reachable endings, deterministic state replay, release identity after JSON decoding, SQLite restoration and owner-scoped deletion.
 

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { createHash, randomUUID } from "node:crypto";
 import { setTimeout as pause } from "node:timers/promises";
 import {
@@ -14,6 +15,7 @@ import {
 } from "./runtime-model";
 import { StudioError } from "../studio/store";
 import { agentFailureCode, safeAwsName, safeAwsStatus } from "./runtime-failure";
+import { streamEvents } from "./event-stream";
 export function episodeRuntimeScope(session: { projectId: string; releaseId: string; ownerHash: string; id: string }) {
   return createHash("sha256").update(JSON.stringify(["botfactory-runtime/1", session.projectId, session.releaseId, session.ownerHash, session.id])).digest("hex");
 }
@@ -56,7 +58,7 @@ export async function invokeCloudRuntime(
   context: Parameters<RuntimeModel>[0],
   config: { arn: string; region: string; profile?: string },
   signal?: AbortSignal,
-  execution?: { episodeScope?: string },
+  execution?: { episodeScope?: string; onTextDelta?: (text: string) => void | Promise<void> },
 ) {
   if (
     !/^arn:aws:bedrock-agentcore:[a-z0-9-]+:\d{12}:runtime\/[a-zA-Z0-9_-]+$/.test(
@@ -87,7 +89,7 @@ export async function invokeCloudRuntime(
         agentRuntimeArn: config.arn,
         runtimeSessionId,
         contentType: "application/json",
-        accept: "application/json",
+        accept: execution?.onTextDelta ? "text/event-stream" : "application/json",
         payload,
       });
     const deadline = AbortSignal.any([
@@ -98,7 +100,21 @@ export async function invokeCloudRuntime(
     agentCoreHeadersMs = since(started);
     phase = "body";
     const reading = performance.now();
-    const raw = JSON.parse(await result.response!.transformToString());
+    let raw;
+    if (execution?.onTextDelta) {
+      let streamed = "";
+      for await (const { event, data } of streamEvents(result.response! as AsyncIterable<Uint8Array>)) {
+        if (event === "dialogue.delta") {
+          const value = z.string().max(6000).parse(data.text);
+          streamed += value;
+          if (streamed.length > 6000) throw Error("Dialogue exceeds stream limit");
+          await execution.onTextDelta(value);
+        }
+        if (event === "runtime.error") throw new StudioError(502, "모델 스트림이 완료되지 않았습니다. 저장하지 않았습니다.");
+        if (event === "runtime.complete") raw = data;
+      }
+      if (!raw || raw.reply?.text !== streamed.trim()) throw Error("Incomplete dialogue stream");
+    } else raw = JSON.parse(await result.response!.transformToString());
     agentCoreBodyMs = since(reading);
     phase = "reply";
     const failure = agentFailureCode.safeParse(raw?.errorCode);
@@ -122,7 +138,7 @@ export async function invokeCloudRuntime(
     );
   } finally {
     // Disposable callers still receive the original explicit cleanup.
-    // Episode compute expires using the already-configured 60s idle timer.
+    // Episode compute expires using the configured idle timer.
     if (runtimeSessionId !== scope) {
       const stopping = performance.now();
       await client.send(new StopRuntimeSessionCommand({ agentRuntimeArn: config.arn, runtimeSessionId }),

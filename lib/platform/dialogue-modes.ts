@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { StudioError } from "../studio/store";
 
-export const dialogueModeSchema = z.enum(["quick", "story", "opus", "nova", "grok", "grok43", "gemma", "gemma26", "gemmae2b", "haiku55", "sonnet55", "opus55", "opus47", "opus48", "opus5", "gpt6luna", "gpt61sol", "gpt61terra", "gpt6astra"]);
+export const dialogueModeSchema = z.enum(["quick", "story", "opus", "nova", "grok", "grok43", "gemma", "gemma26", "gemmae2b", "haiku55", "sonnet5", "sonnet55", "opus55", "opus47", "opus48", "opus5", "gpt6luna", "gpt61sol", "gpt61terra", "gpt6astra"]);
 export type DialogueMode = z.infer<typeof dialogueModeSchema>;
 export const haikuFoundationModel = "anthropic.claude-haiku-4-5-20251001-v1:0";
 export const haikuInferenceProfile = `global.${haikuFoundationModel}`;
@@ -28,6 +28,7 @@ const gemmaModels = [
 export const isGemmaMantleModel = (modelId: string) => gemmaModels.some(([, , id]) => id === modelId);
 type DialogueModel = { id: DialogueMode; label: string; provider: string; description: string; foundationModel: string; modelId: string; maxTokens: number; transport?: "converse-auto" | "grok-json" | "mantle"; legacy?: true };
 export const playerDialogueModels: readonly DialogueModel[] = [
+  { id: "sonnet5", label: "Claude Sonnet 5", provider: "Anthropic", description: "대사와 이야기 전개를 자연스럽게 이어가요.", foundationModel: "anthropic.claude-sonnet-5", modelId: "global.anthropic.claude-sonnet-5", maxTokens: 2200, transport: "converse-auto" },
   { id: "haiku55", label: "Claude Haiku 5.5", provider: "Anthropic", description: "짧은 대사를 주고받는 데 잘 맞아요.", foundationModel: "anthropic.claude-haiku-5-5", modelId: "global.anthropic.claude-haiku-5-5", maxTokens: 3200, transport: "converse-auto" },
   { id: "sonnet55", label: "Claude Sonnet 5.5", provider: "Anthropic", description: "대사와 장면 전개를 균형 있게 이어가요.", foundationModel: "anthropic.claude-sonnet-5-5", modelId: "global.anthropic.claude-sonnet-5-5", maxTokens: 3000, transport: "converse-auto" },
   { id: "opus55", label: "Claude Opus 5.5", provider: "Anthropic", description: "인물의 감정과 복잡한 장면을 깊게 다뤄요.", foundationModel: "anthropic.claude-opus-5-5", modelId: "global.anthropic.claude-opus-5-5", maxTokens: 3600, transport: "converse-auto" },

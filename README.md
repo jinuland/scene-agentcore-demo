@@ -58,17 +58,50 @@ synth는 소스 번들을 만들고 CloudFormation 템플릿을 생성합니다.
 
 카탈로그의 작품과 삽화 출처, 모델 호출 형태는 [데모 설명](examples/agentcore-character-demo/README.md)에 있습니다.
 
+## 스트리밍과 비동기 그래프 · 2026-11-22
+
+기본 대화 모델은 **Claude Sonnet 5.5**이며 Sonnet 5를 포함해 14개 모델을 선택할 수 있습니다. 대사는 JSON 객체 전체가 완성되기를 기다리지 않고 일반 텍스트 델타로 전달합니다. Bedrock → AgentCore SSE → Lambda 응답 스트리밍 → 브라우저가 모두 스트리밍합니다. JSON은 개별 SSE 이벤트와 작은 상태 판정에 사용하며 대사 스트리밍을 막지 않습니다.
+
+```mermaid
+flowchart LR
+  U[브라우저] <-->|HTTPS·대사 SSE| CF[Amazon CloudFront]
+  CF <-->|OAC·IAM| W[AWS Lambda Web RESPONSE_STREAM]
+  W <-->|SSE| R[Amazon Bedrock AgentCore Runtime]
+  R <-->|ConverseStream / Mantle SSE| M[Amazon Bedrock]
+  W <-->|대화+최신 상태 원자 저장| D[(Amazon DynamoDB)]
+  D --> S[DynamoDB Streams]
+  S --> P[AWS Lambda GraphProjector]
+  P -->|버전 조건부 갱신| G[(동일 테이블 graph# 투영)]
+  P -. 실패 재시도 후 .-> Q[Amazon SQS 실패 큐]
+```
+
+위 AWS 아이콘 그림은 기본 호출 경로이며, 이 흐름도가 새 비동기 투영 경로까지 나타냅니다. 그래프 작품의 입력 해석과 숫자·게이트 계산은 대사 전에 수행합니다. 계산한 **현재 장면·허용된 전이·확정 행동**을 대사 모델에 전달합니다. 그래프 전체를 DB에 물질화하는 작업만 뒤로 분리했습니다. 이 계산까지 뒤로 미루면 대사가 보여 준 이동과 상태창이 어긋날 수 있습니다.
+
+대화 원문·최신 상태·근거 기억은 한 회차 스냅샷으로 저장한 후 `state.committed`를 보냅니다. INFO는 이 확정 버전으로 갱신하고 다음 요청도 같은 스냅샷에서 시작합니다. DynamoDB Streams 소비자가 최신 스냅샷을 읽어 `graph#회차`를 비동기 갱신합니다. 중복·순서 역전을 버전 조건으로 처리하며 실패는 재시도 후 SQS에 보관합니다. 다음 대화는 지연될 수 있는 그래프 투영을 읽지 않습니다. 로컬 SQLite는 동일 트랜잭션에 투영 작업을 남기고 별도 작업으로 처리하며 재시작 때 미처리 작업을 재개합니다.
+
+같은 `requestId` 재시도는 저장된 답변을 반환합니다. 부분 스트림·모델 실패는 회차를 진행시키지 않으며, 회차 잠금과 저장 버전 검사로 중복 저장을 막습니다. 브라우저의 생성 중 대사는 임시 표시이고 저장 확인 전에는 확정된 INFO가 아닙니다. 일반 작품은 기억 추출·스탯 판정과 대사를 병렬 실행합니다. 별도 LLM 사후 검수·재생성은 추가하지 않았습니다.
+
+**시간 표시:** `Bedrock 첫 텍스트`는 Runtime 내부 모델 요청 시작부터 첫 텍스트 델타까지, `서비스 첫 대사`는 웹 서비스가 Runtime 호출을 시작한 후 첫 델타를 받은 시간입니다. 입력 해석·Runtime 대기·모델 생성은 일부 중첩되므로 더하면 안 됩니다. 브라우저 렌더링 시간과 전체 저장 완료는 별도입니다. 스트림 연결은 Runtime HTTP 응답 헤더까지, 스트림 수신은 헤더 이후 완료까지입니다. 응답 아래 단일 초 표시는 생성/Runtime 반환까지이며 저장 ACK 시각과 구별합니다. 이 값은 AWS 엔진 내부 실행 시작·종료 절대시각이 아닙니다.
+
+**모델 옵션:** Sonnet 5는 `thinking: disabled`, Sonnet 5.5는 `thinking: between_tools`와 기본 effort `high`를 사용합니다. `adaptive`는 필요에 따라 추론량을 고르는 방식이고, `between_tools`는 high 이하에서 응답 전 추론을 건너뛰고 도구 사이의 추론을 허용하는 방식입니다. 대사 경로에는 실행 도구가 없으며 이 옵션 때문에 도구 호출이 생기지는 않습니다. effort는 전체 응답의 토큰 사용·상세함을 조절하므로 thinking type과 다른 축입니다. [AWS Sonnet 5.5](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5-5.html), [Adaptive thinking](https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-adaptive-thinking.html), [Effort](https://platform.claude.com/docs/en/build-with-claude/effort)
+
+GPT-6 Luna와 GPT-6.1 Terra는 실측에서 지원된 `reasoning.effort: none`을 사용합니다. Sol·Astra의 동일 none 요청은 거절되어 low를 유지합니다. Haiku 대사는 adaptive/low, 상태 해석·기억·스탯 보조 호출은 disabled/low입니다. 모델·계정·리전별 지원은 배포 시 확인해야 합니다.
+
+속도와 품질의 실측·길이·옵션·제약은 [고객용 비교 가이드](docs/streaming-benchmark-20261122.md)를 참고하세요. 원본 사용자 대화, 쿠키, 실행 DB와 비공개 테스트 회차는 소스 ZIP에 포함하지 않습니다.
+
 ## 작품 그래프와 회차 상태
 
 새 작품 **다시 사람을 좋아하게 되는 날이 다가온다면**에는 표지·장면 이미지·4컷 프롤로그 웹툰과 예시 대화 3턴이 포함됩니다. 원작 냥치기의 공개 작품 설정과 도입을 재사용 허락에 따라 옮겼으며, 삽화는 허락된 원작 이미지를 참고해 새로 생성했습니다. 원작의 내부 규칙은 제공받지 않았으므로 아래 여섯 장면과 세 엔딩의 조건은 이 데모에서 설계한 것입니다.
 
-작품 정의는 `examples/agentcore-character-demo/sarang-story.ts`, 공통 실행기는 `lib/platform/narrative-graph.ts`에 있습니다. Scene·Fact·Action·Counter·Transition·Gate·Ending 노드와 ALLOWS·CHANGES·REQUIRES·READS·OPENS 관계로 Graphology 인메모리 그래프를 구성합니다. 공개 조건을 충족한 사실만 대사 모델에 전달합니다. 편의점 첫 만남 → 창가 대화 → 하굣길 → 다음 날 재회 → 공원 대화 → 도움의 계획으로 이어지며, 호감도 0~200%, 소통 카운터, 일회성 사건, 장면 최소 턴과 플레이어의 이동 의사를 함께 검사합니다. 엔딩은 ‘오늘의 인사’, ‘우리의 속도로’, ‘새로운 한 걸음’입니다.
+작품 정의는 `examples/agentcore-character-demo/sarang-story.ts`, 공통 실행기는 `lib/platform/narrative-graph.ts`에 있습니다. Scene·Fact·Action·Counter·Transition·Gate·Ending 노드와 ALLOWS·CHANGES·REQUIRES·READS·OPENS·REQUESTS_TRANSITION 관계로 Graphology 인메모리 그래프를 구성합니다. 공개 조건을 충족한 사실만 대사 모델에 전달합니다. 편의점 첫 만남 → 창가 대화 → 하굣길 → 다음 날 재회 → 공원 대화 → 도움의 계획으로 이어지며, 호감도 0~200%, 소통 카운터, 일회성 사건, 장면 최소 턴과 플레이어의 이동 의사를 함께 검사합니다. 엔딩은 ‘오늘의 인사’, ‘우리의 속도로’, ‘새로운 한 걸음’입니다.
 
-한 턴의 순서는 **Haiku 입력 해석 → 그래프 규칙 계산 → 선택한 모델의 대사 생성 → 저장**입니다. 해석 모델은 작가가 등록한 행동·전이 ID와 이번 발언의 원문 근거만 고릅니다. 카운터와 시간, 이동, 엔딩은 코드가 계산합니다. 대사 생성 후 별도 LLM 검수나 재생성 단계는 없습니다. API는 반환 상태를 같은 규칙으로 재계산하는 코드 검사와 회차 잠금을 통과한 경우에만 대화와 상태를 저장합니다. 실패하면 진행 상태도 저장하지 않습니다.
+한 턴의 순서는 **Haiku 입력 해석 → 상태 규칙 계산 → 대사 스트리밍 → 최신 상태 저장 → 비동기 그래프 투영**입니다. 해석 모델은 작가가 등록한 행동·전이 ID와 이번 발언의 원문 근거만 고릅니다. 카운터와 시간, 이동, 엔딩은 코드가 계산합니다. 대사 생성 후 별도 LLM 검수나 재생성 단계는 없습니다. API는 반환 상태를 같은 규칙으로 재계산하는 코드 검사와 회차 잠금을 통과한 경우에만 대화와 상태를 저장합니다. 실패하면 진행 상태도 저장하지 않습니다.
+
+작가 정의의 행동에는 선택적으로 `opensTransition`을 지정할 수 있습니다. 예를 들어 `walk-together` 행동을 `walk-home` 전이에 연결하면, 입력 근거가 확인된 행동이 그 전이를 요청하고 코드가 기존 카운터·최소 턴 게이트를 검사합니다. 별도의 전이 ID가 모델 출력에서 누락돼도 행동과 상태 이동이 함께 처리됩니다. 복수의 서로 다른 목적지가 충돌하면 자동 선택하지 않습니다. 이는 작품 JSON 규칙이며 자유 입력 작품 생성 화면이 자동으로 설계하는 기능은 아닙니다. 사랑 작품의 새 회차는 정의 v2를 사용하고 기존 회차는 저장된 정의 버전을 유지합니다.
 
 회차마다 작품 정의 버전과 해시, 현재 장면·시각·카운터·사건/전이 이력을 함께 저장합니다. 실행 중 그래프는 메모리에 있으며, 다음 요청 때 저장된 스냅샷에서 재구성하므로 Runtime 종료에 복원을 의존하지 않습니다. 클라우드는 DynamoDB, 로컬 웹 API는 SQLite WAL을 사용합니다. SQLite 파일은 AgentCore 내부 임시 디스크가 아니라 로컬 API의 데이터 디렉터리에 있습니다. 여러 사용자의 공동 회차 UI, 자유 입력에서 작품 그래프를 자동 생성하는 기능, 임베딩 기반 기억 검색은 이번 데모 범위에 포함되지 않습니다. 그래프와 모델에 전달하는 최근 대화·근거 기억은 별도의 데이터입니다.
 
-상태창에서 날짜·일차·장면·호감도·다음 조건을 볼 수 있고, 응답 아래 **처리 시간 보기**에서 입력 해석·그래프 계산·대사 생성 시간을 확인할 수 있습니다. AgentCore 응답 대기 시간은 모델 실행을 포함한 전체 호출 시간이며 다른 단계와 중첩됩니다. 종료된 회차는 읽을 수 있고, 새 회차에서 다시 선택할 수 있습니다.
+상태창에서 날짜·일차·장면·호감도·다음 조건을 볼 수 있고, 응답 아래 **처리 시간 보기**에서 입력 해석·상태 규칙 계산·대사 생성 시간을 확인할 수 있습니다. 스트림 연결은 호출 후 응답 헤더까지, 스트림 수신은 헤더 후 Runtime 완료까지이며 해석·모델 단계와 중첩됩니다. 종료된 회차는 읽을 수 있고, 새 회차에서 다시 선택할 수 있습니다.
 
 `npm test`는 배포 패키지에서 그래프 게이트, 범위, 세 엔딩 도달, 상태 재계산, JSON 디코딩 후 버전 일치, SQLite 재연결 복원과 소유자별 삭제를 검사합니다.
 

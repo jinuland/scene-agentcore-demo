@@ -10,7 +10,7 @@ export const narrativeDefinitionSchema = z.object({
   counters: z.array(z.object({ id, label: z.string().max(80), initial: z.number().finite(), min: z.number().finite(), max: z.number().finite(), unit: z.string().max(12), visible: z.boolean() }).strict()).max(16),
   facts: z.array(z.object({ id, text: z.string().max(1600), conditions: z.array(condition).max(8) }).strict()).max(40),
   scenes: z.array(z.object({ id, title: z.string().max(120), location: z.string().max(120), opening: z.string().max(1800), objective: z.string().max(300), minTurns: z.number().int().min(0).max(30), suggestions: z.array(z.string().max(150)).max(3), mood: z.enum(["neutral", "focused", "concerned", "relieved"]) }).strict()).min(1).max(24),
-  events: z.array(z.object({ id, when: z.string().max(500), scenes: z.array(id).max(24), once: z.boolean(), effects: z.array(z.object({ counter: id, delta: z.number().finite() }).strict()).max(8), minutes: z.number().int().min(0).max(1440) }).strict()).max(32),
+  events: z.array(z.object({ id, when: z.string().max(500), scenes: z.array(id).max(24), once: z.boolean(), opensTransition: id.optional(), effects: z.array(z.object({ counter: id, delta: z.number().finite() }).strict()).max(8), minutes: z.number().int().min(0).max(1440) }).strict()).max(32),
   transitions: z.array(z.object({ id, from: id, to: id, label: z.string().max(150), when: z.string().max(500), conditions: z.array(condition).max(8), minutes: z.number().int().min(0).max(1440).optional() }).strict()).max(40),
   endings: z.array(z.object({ id, title: z.string().max(120), text: z.string().max(1200), scenes: z.array(id).max(24), conditions: z.array(condition).min(1).max(8), priority: z.number().int().min(0).max(100) }).strict()).min(1).max(10),
 }).strict();
@@ -77,6 +77,12 @@ export function compileNarrative(definition: NarrativeDefinition) {
     graph.addDirectedEdge(key, "scene/" + transition.to, { kind: "OPENS" });
     gates(key, transition.conditions);
   }
+  for (const event of definition.events) {
+    if (!event.opensTransition) continue;
+    const transition = definition.transitions.find(item => item.id === event.opensTransition);
+    if (!transition || !event.scenes.includes(transition.from)) throw Error("Invalid authored action transition");
+    graph.addDirectedEdge("event/" + event.id, "transition/" + transition.id, { kind: "REQUESTS_TRANSITION" });
+  }
   for (const ending of definition.endings) {
     const key = "ending/" + ending.id;
     node(key, "Ending", ending);
@@ -141,9 +147,19 @@ export function advanceNarrative(definition: NarrativeDefinition, current: Narra
   }
   let graph = narrativeGraph(definition, next);
   const scene = definition.scenes.find(scene => scene.id === next.scene)!;
-  const transition = plan.transition && definition.transitions.find(transition => transition.id === plan.transition!.id && transition.from === next.scene);
-  if (transition && next.sceneTurns >= scene.minTurns && message.includes(plan.transition!.quote) && gatePasses(graph, "transition/" + transition.id)) {
-    next.transitions.push({ id: transition.id, from: transition.from, to: transition.to, turn: next.turns, quote: plan.transition!.quote });
+  // An authored action can request its linked transition. The same gates and
+  // exact input evidence still apply; ambiguous links never choose a destination.
+  const linked = next.events.filter(event => event.turn === next.turns).flatMap(record => {
+    const action = definition.events.find(event => event.id === record.id)!;
+    const transition = definition.transitions.find(item => item.id === action.opensTransition && item.from === next.scene);
+    return transition ? [{ id: transition.id, quote: record.quote }] : [];
+  });
+  const linkedIds = new Set(linked.map(item => item.id));
+  const explicit = plan.transition && message.includes(plan.transition.quote) && definition.transitions.some(item => item.id === plan.transition!.id && item.from === next.scene) ? plan.transition : null;
+  const requested = explicit ?? (linkedIds.size === 1 ? linked[0] : null);
+  const transition = requested && definition.transitions.find(transition => transition.id === requested.id && transition.from === next.scene);
+  if (transition && next.sceneTurns >= scene.minTurns && message.includes(requested!.quote) && gatePasses(graph, "transition/" + transition.id)) {
+    next.transitions.push({ id: transition.id, from: transition.from, to: transition.to, turn: next.turns, quote: requested!.quote });
     next.scene = transition.to; next.sceneTurns = 0;
     next.elapsedMinutes += transition.minutes ?? 0;
     graph = narrativeGraph(definition, next);

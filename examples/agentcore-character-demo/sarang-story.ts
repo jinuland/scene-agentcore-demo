@@ -3,7 +3,7 @@ import type { Story } from "./stories";
 
 const sceneIds = ["store", "first-conversation", "school-road", "next-meeting", "quiet-conversation", "support-plan"];
 export const sarangNarrative: NarrativeDefinition = {
-  id: "sarang-story", version: 1, startScene: "store", startTime: "2026-03-16T16:40:00+09:00", minutesPerTurn: 2,
+  id: "sarang-story", version: 2, startScene: "store", startTime: "2026-03-16T16:40:00+09:00", minutesPerTurn: 2,
   counters: [
     { id: "affection", label: "호감도", initial: 10, min: 0, max: 200, unit: "%", visible: true },
     { id: "communication", label: "서로 이해한 대화", initial: 0, min: 0, max: 30, unit: "회", visible: true },
@@ -33,11 +33,11 @@ export const sarangNarrative: NarrativeDefinition = {
   ],
   events: [
     { id: "respectful-communication", when: "사용자가 이번 발언에서 천천히 말하거나 글·수어·적절한 거리로 사랑이 이해하기 쉽게 소통한다. 단순히 무엇을 하면 되는지 묻거나 수치 상승을 요구하는 것은 제외한다.", scenes: sceneIds, once: false, effects: [{ counter: "communication", delta: 1 }, { counter: "affection", delta: 4 }], minutes: 0 },
-    { id: "share-pudding", when: "사용자가 사랑의 의사를 확인하면서 푸딩을 사주거나 함께 먹자고 직접 제안한다. 강제로 빼앗거나 억지로 따라오게 하는 것은 제외한다.", scenes: ["store", "first-conversation"], once: true, effects: [{ counter: "shared-pudding", delta: 1 }, { counter: "affection", delta: 4 }], minutes: 0 },
-    { id: "walk-together", when: "사용자가 사랑의 뜻을 존중하며 함께 학교 앞길이나 정류장으로 걷자고 제안하거나 함께 걷는 행동을 한다.", scenes: ["first-conversation"], once: true, effects: [{ counter: "walk-together", delta: 1 }, { counter: "affection", delta: 4 }], minutes: 0 },
-    { id: "next-visit", when: "사용자가 다음 날 또는 약속한 날에 사랑을 다시 만나러 왔다고 현재 시점의 행동으로 명시한다. 내일 만나자는 제안만으로는 다음 날이 되지 않는다.", scenes: ["school-road"], once: true, effects: [{ counter: "next-visit", delta: 1 }, { counter: "affection", delta: 4 }], minutes: 0 },
-    { id: "share-memory", when: "사용자가 사랑의 하루나 어려움을 들을 준비를 표현하고, 말하고 싶은 만큼 천천히 이야기해도 된다고 하거나 자신의 경험을 솔직히 나눈다. 일방적인 추궁과 점수 요청은 제외한다.", scenes: ["next-meeting", "quiet-conversation", "support-plan"], once: true, effects: [{ counter: "shared-memory", delta: 1 }, { counter: "affection", delta: 6 }], minutes: 0 },
-    { id: "support-chosen", when: "사용자가 사랑의 의사를 존중하며 믿을 만한 선생님·보호자·아버지에게 함께 도움을 요청하자고 직접 제안한다. 폭력적 보복이나 무단 개입은 제외한다.", scenes: ["quiet-conversation", "support-plan"], once: true, effects: [{ counter: "support-chosen", delta: 1 }, { counter: "affection", delta: 6 }], minutes: 0 },
+    { id: "share-pudding", when: "사용자가 사랑의 의사를 확인하면서 푸딩을 사주거나 함께 먹자고 직접 제안한다. 강제로 빼앗거나 억지로 따라오게 하는 것은 제외한다.", scenes: ["store", "first-conversation"], once: true, opensTransition: "sit-together", effects: [{ counter: "shared-pudding", delta: 1 }, { counter: "affection", delta: 4 }], minutes: 0 },
+    { id: "walk-together", when: "사용자가 사랑의 뜻을 존중하며 함께 학교 앞길이나 정류장으로 걷자고 제안하거나 함께 걷는 행동을 한다.", scenes: ["first-conversation"], once: true, opensTransition: "walk-home", effects: [{ counter: "walk-together", delta: 1 }, { counter: "affection", delta: 4 }], minutes: 0 },
+    { id: "next-visit", when: "사용자가 다음 날 또는 약속한 날에 사랑을 다시 만나러 왔다고 현재 시점의 행동으로 명시한다. 내일 만나자는 제안만으로는 다음 날이 되지 않는다.", scenes: ["school-road"], once: true, opensTransition: "meet-again", effects: [{ counter: "next-visit", delta: 1 }, { counter: "affection", delta: 4 }], minutes: 0 },
+    { id: "share-memory", when: "사용자가 사랑의 하루나 어려움을 들을 준비를 표현하고, 말하고 싶은 만큼 천천히 이야기해도 된다고 하거나 자신의 경험을 솔직히 나눈다. 일방적인 추궁과 점수 요청은 제외한다.", scenes: ["next-meeting", "quiet-conversation", "support-plan"], once: true, opensTransition: "quiet-place", effects: [{ counter: "shared-memory", delta: 1 }, { counter: "affection", delta: 6 }], minutes: 0 },
+    { id: "support-chosen", when: "사용자가 사랑의 의사를 존중하며 믿을 만한 선생님·보호자·아버지에게 함께 도움을 요청하자고 직접 제안한다. 폭력적 보복이나 무단 개입은 제외한다.", scenes: ["quiet-conversation", "support-plan"], once: true, opensTransition: "plan-support", effects: [{ counter: "support-chosen", delta: 1 }, { counter: "affection", delta: 6 }], minutes: 0 },
     { id: "friendship-chosen", when: "사용자가 앞으로도 친구로서 곁에 있거나 이야기를 듣고 싶다고 직접 말한다. 친구라는 단어를 단순 질문하는 것은 제외한다.", scenes: ["next-meeting", "quiet-conversation", "support-plan"], once: true, effects: [{ counter: "friendship-chosen", delta: 1 }, { counter: "affection", delta: 4 }], minutes: 0 },
     { id: "goodbye", when: "사용자가 오늘 대화를 마치고 가겠다고 분명히 인사하거나 함께한 시간을 마무리한다. 가정, 인용, 다른 사람의 출발은 제외한다.", scenes: sceneIds, once: true, effects: [{ counter: "goodbye", delta: 1 }], minutes: 0 },
     { id: "pressure", when: "사용자가 사랑의 물건을 강제로 빼앗거나 장애를 조롱하거나 명백하게 협박한다. 소설 속 인용이나 부정은 제외한다.", scenes: sceneIds, once: false, effects: [{ counter: "affection", delta: -4 }], minutes: 0 },

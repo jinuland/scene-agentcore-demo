@@ -6,7 +6,7 @@ import { gptMantleEffort, grok43FoundationModel, isGemmaMantleModel, mantleRegio
 import { strictToolSchema } from "./strict-tool-schema";
 
 const bytes = (value: ArrayBuffer | ArrayBufferView) => ArrayBuffer.isView(value) ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength) : new Uint8Array(value);
-class Sha256 {
+export class Sha256 {
   private readonly hash: Hash | Hmac;
   constructor(secret?: string | ArrayBuffer | ArrayBufferView) {
     this.hash = secret === undefined ? createHash("sha256") : createHmac("sha256", typeof secret === "string" ? secret : bytes(secret));

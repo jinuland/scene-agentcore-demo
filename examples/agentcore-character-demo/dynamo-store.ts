@@ -63,7 +63,7 @@ export function dynamoStore(TableName: string): SceneStore {
           ConditionExpression: "#rev = :rev AND (attribute_not_exists(heldUntil) OR heldUntil < :now)",
           UpdateExpression: "SET #token = :token, heldUntil = :until",
           ExpressionAttributeNames: { "#rev": "rev", "#token": "token" },
-          ExpressionAttributeValues: { ":rev": episode.turns.length, ":token": token, ":now": time(), ":until": time() + 100 },
+          ExpressionAttributeValues: { ":rev": episode.turns.length, ":token": token, ":now": time(), ":until": time() + 130 },
         }));
         return true;
       } catch (error) { if (conflict(error)) return false; throw error; }

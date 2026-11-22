@@ -108,7 +108,7 @@ test("time jumps commit with a successful transition and plans replay determinis
     const replay = advanceNarrative(definition, previous, input, { events: returned.events.filter(event => event.turn === returned.turns).map(({id, quote}) => ({id, quote})), transition: transition ? {id:transition.id, quote:transition.quote} : null }).state;
     assert.deepEqual(replay, returned); previous = returned;
   }
-  const another = structuredClone(definition); another.version = 2;
+  const another = structuredClone(definition); another.version = definition.version + 1;
   assert.throws(() => narrativeGraph(another, previous), /release mismatch/);
 });
 
@@ -151,4 +151,34 @@ test("SQLite persists graph snapshots and event evidence across new connections 
     assert.equal(await first.deleteEpisode("owner", id), true);
     assert.equal(await sqliteStore(path).findEpisode("owner", id), undefined);
   } finally { await rm(dir, {recursive:true, force:true}); }
+});
+
+
+test("authored action links move only with evidence and satisfied gates, and old releases retain their rules", () => {
+  const atWindow = step(step(step(initialNarrativeState(definition), ["respectful-communication"]), ["share-pudding"], "sit-together"));
+  const progressed = advanceNarrative(definition, atWindow, input, { events: [{ id: "walk-together", quote: input }], transition: null }).state;
+  assert.equal(progressed.scene, "school-road");
+  assert.equal(progressed.transitions.at(-1)?.quote, input);
+  assert.deepEqual(verifiedNarrativeState(definition, atWindow, input, progressed), progressed);
+  const badEvidence = advanceNarrative(definition, atWindow, input, { events: [{ id: "walk-together", quote: "없는 근거" }], transition: null }).state;
+  assert.equal(badEvidence.scene, "first-conversation");
+  const early = step(step(initialNarrativeState(definition), ["respectful-communication"]), ["share-pudding"], "sit-together");
+  assert.equal(advanceNarrative(definition, early, input, { events: [{ id: "walk-together", quote: input }], transition: null }).state.scene, "first-conversation");
+  const legacy = structuredClone(definition); legacy.version = 1;
+  for (const event of legacy.events) delete event.opensTransition;
+  const pinned = { ...structuredClone(atWindow), definitionHash: initialNarrativeState(legacy).definitionHash };
+  assert.equal(advanceNarrative(legacy, pinned, input, { events: [{ id: "walk-together", quote: input }], transition: null }).state.scene, "first-conversation");
+  const badDefinition = structuredClone(definition); badDefinition.events[0].opensTransition = "missing-transition";
+  assert.throws(() => compileNarrative(badDefinition), /authored action transition/);
+});
+
+test("two authored action links do not silently choose an ambiguous destination", () => {
+  const variant = structuredClone(definition);
+  variant.transitions.push({ id: "alternate-road", from: "first-conversation", to: "quiet-conversation", label: "다른 길", when: "명시적인 다른 선택", conditions: [] });
+  variant.events.find(event => event.id === "respectful-communication")!.opensTransition = "alternate-road";
+  const atWindow = step(step(step(initialNarrativeState(definition), ["respectful-communication"]), ["share-pudding"], "sit-together"));
+  atWindow.definitionHash = initialNarrativeState(variant).definitionHash;
+  const result = advanceNarrative(variant, atWindow, input, { events: [{ id: "walk-together", quote: input }, { id: "respectful-communication", quote: input }], transition: null });
+  assert.equal(result.state.scene, "first-conversation");
+  assert.equal(result.transitioned, false);
 });

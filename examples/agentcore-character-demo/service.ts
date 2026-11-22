@@ -9,6 +9,7 @@ import { initialNarrativeState, publicNarrative } from "../../lib/platform/narra
 import { verifiedCandidates } from "../../lib/platform/memory";
 import { episodeRuntimeScope, invokeCloudRuntime } from "../../lib/platform/runtime-client";
 import { hasSceneDialogue, narrationPolicy, storyBeats } from "../../lib/platform/story-beats";
+import { streamEvent } from "../../lib/platform/event-stream";
 import { StudioError } from "../../lib/studio/store";
 import type { Context, Episode, SceneStore, Turn } from "./scene-store";
 import { localizeStory, sceneLocale, type SceneLocale } from "./story-locales";
@@ -19,6 +20,7 @@ const idSchema = z.string().regex(/^[a-z0-9-]{1,64}$/);
 const turnSchema = z.object({
   message: z.string().trim().min(1).max(1500),
   mode: dialogueModeSchema,
+  requestId: z.string().uuid().optional(),
 }).strict();
 const maxTurns = 24;
 const trustMax = 5;
@@ -47,15 +49,19 @@ function stripSpeakerLabel(text: string, character: string) {
   }).join("\n").trim();
 }
 
+const beatAliases: Record<string, string> = { action: "행동", dialogue: "대사", scene: "장면", narration: "묘사", 行動: "행동", 台詞: "대사", セリフ: "대사", 場面: "장면", 描写: "묘사" };
+const presentBeatLabels = (text: string) => text.replace(/\[(action|dialogue|scene|narration|行動|台詞|セリフ|場面|描写)\]/giu, (_, label: string) => `[${beatAliases[label.toLowerCase()]}]`);
+
 const exposeEpisode = (episode: Episode, story: Story, locale: SceneLocale) => ({
   id: episode.id,
+  version: episode.turns.length,
   story: episode.story,
   memoryCount: episode.memories.length,
   ...(story.narrative ? { narrative: publicNarrative(story.narrative, episode.narrative ?? initialNarrativeState(story.narrative)) } : {}),
   stats: { trust: trustValue(episode), max: trustMax, level: trustLabel(trustValue(episode), locale) },
   status: storyStatus(story, episode),
   turns: episode.turns.map(({ id, input, text, mood, suggestions, mode, timing, usage, responseLanguage, trustQuote }) => {
-    const dialogue = stripSpeakerLabel(text, story.character);
+    const dialogue = presentBeatLabels(stripSpeakerLabel(text, story.character));
     const beats = hasSceneDialogue(dialogue) ? storyBeats(dialogue).filter(beat => /\p{L}/u.test(beat.text))
       : [{ kind: "speech", text: missingDialogue[locale] }];
     return { id, input, beats, mood, suggestions, mode, timing, usage, responseLanguage, trustQuote };
@@ -129,7 +135,7 @@ async function requestBody(request: Request) {
 
 export function createSceneService({ store, web, aws, accessCode, publicAccess = false, chargeTurn }: ServiceOptions) {
   const models = enabledDialogueModes();
-  const defaultModel = models.find(model => model.id === "gpt6luna")?.id ?? models[0]?.id;
+  const defaultModel = models.find(model => model.id === "sonnet55")?.id ?? models[0]?.id;
   const recentScenes = new Map<string, Buffer>();
   return async (request: Request) => {
     const responseHeaders = new Headers({
@@ -193,7 +199,7 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
 
       if (request.method === "GET" && path === "/api/library") {
         const [drafts, sessions] = await Promise.all([store.drafts(owner), store.sessions(owner)]);
-        return json(200, { stories: [...stories, ...drafts].map(story => publicStory(localizeStory(story, locale))), sessions, models, defaultModel, runtime: !!aws.arn });
+        return json(200, { stories: [...stories, ...drafts].map(story => publicStory(localizeStory(story, locale))), sessions, models, defaultModel, runtime: !!aws.arn, streaming: true, pipelineVersion: "scene-stream/6" });
       }
       if (request.method === "POST" && path === "/api/stories") {
         const story = draftStory(`custom-${randomUUID()}`, draftSchema.parse(await requestBody(request)));
@@ -222,32 +228,45 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
       if (request.method === "GET" && !route[2]) return json(200, exposeEpisode(current, story, locale));
       if (request.method !== "POST" || route[2] !== "turn") throw new StudioError(405, "지원하지 않는 요청입니다.");
 
+      const { mode, message, requestId } = turnSchema.parse(await requestBody(request));
+      const duplicate = requestId && current.turns.find(turn => turn.id === requestId);
+      if (duplicate) {
+        if (duplicate.input !== message || duplicate.mode !== mode) throw new StudioError(409, "같은 요청 ID의 입력이 변경됐습니다.");
+        if (request.headers.get("accept")?.includes("text/event-stream")) {
+          responseHeaders.set("Content-Type", "text/event-stream; charset=utf-8");
+          responseHeaders.set("Cache-Control", "no-store, no-transform");
+          return new Response(streamEvent("state.committed", { episode: exposeEpisode(current, story, locale), replay: true }), { headers: responseHeaders });
+        }
+        return json(200, exposeEpisode(current, story, locale));
+      }
       if (current.narrative?.ending) throw new StudioError(409, "이 회차의 엔딩을 확인했습니다. 새 회차를 시작해 주세요.");
-      const { mode, message } = turnSchema.parse(await requestBody(request));
       if (!models.some(model => model.id === mode)) throw new StudioError(422, "이 모델은 현재 선택할 수 없습니다.");
       if (!aws.arn) throw new StudioError(503, "AgentCore Runtime이 연결되어 있지 않습니다.");
       if (current.turns.length >= maxTurns) throw new StudioError(422, `이 회차는 ${maxTurns}턴을 마쳤습니다. 새 회차를 열어 주세요.`);
       const token = randomUUID();
       if (!await store.lockTurn(owner, current, token)) throw new StudioError(409, "이 회차가 처리 중이거나 변경됐습니다. 다시 열어 주세요.");
+      const processTurn = async (onTextDelta?: (text: string) => void) => {
       try {
         await chargeTurn?.();
         const started = performance.now();
-        const signal = AbortSignal.any([request.signal, AbortSignal.timeout(75000)]);
+        let serviceFirstContentMs: number | undefined;
+        const signal = AbortSignal.any([request.signal, AbortSignal.timeout(110000)]);
         const output = await invokeCloudRuntime(makeContext(story, current, mode, message, locale), aws, signal, {
-          episodeScope: episodeRuntimeScope({ id: current.id, projectId: `scene-demo/${story.id}`, releaseId: "demo-v1", ownerHash: owner }),
+          episodeScope: episodeRuntimeScope({ id: current.id, projectId: `scene-demo/${story.id}`, releaseId: "demo-stream-v6", ownerHash: owner }),
+          ...(onTextDelta ? { onTextDelta: (text: string) => { serviceFirstContentMs ??= Math.round(performance.now() - started); onTextDelta(text); } } : {}),
         });
         signal.throwIfAborted();
         const parsed = expressionReply(output.text);
         const text = stripSpeakerLabel(parsed.text, story.character);
-        if (!hasSceneDialogue(text)) throw new StudioError(422, "모델이 대사를 완성하지 못했습니다. 입력을 남겨 두었으니 다시 보내거나 모델을 바꿔 주세요.");
+        if (!hasSceneDialogue(presentBeatLabels(text))) throw new StudioError(422, "모델이 대사를 완성하지 못했습니다. 입력을 남겨 두었으니 다시 보내거나 모델을 바꿔 주세요.");
         const matches = output.dialogueStatMatches ?? [];
         const hasTrust = verifyDialogueMatches(trustRules(story, current), message, matches).includes("trust");
         const turn: Turn = {
-          id: randomUUID(), input: message, text,
-          mood: parsed.mood && story.cards[parsed.mood] ? parsed.mood : "neutral",
+          id: requestId ?? randomUUID(), input: message, text,
+          mood: output.imageKey && story.cards[output.imageKey] ? output.imageKey : parsed.mood && story.cards[parsed.mood] ? parsed.mood : "neutral",
           suggestions: [...new Set((output.suggestions ?? []).map(s => s.trim()).filter(hasSceneDialogue))],
           ...(locale !== "ko" && { responseLanguage: locale }),
-          ...(output.usage ? { usage: output.usage } : {}),
+          ...(output.usage ? { usage: { ...output.usage, ...(serviceFirstContentMs === undefined ? {} : { serviceFirstContentMs }) } } : {}),
           mode, timing: Math.round(performance.now() - started),
           ...(hasTrust ? { trustQuote: matches.find(match => match.id === "trust" && message.includes(match.quote))!.quote } : {}),
         };
@@ -262,12 +281,40 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
           predicate: item.predicate, quote: item.quote, sourceTurnId: turn.id,
         }));
         current.memories = [...current.memories, ...remembered].slice(-16);
+        const saving = performance.now();
         await store.saveTurn(owner, current, token);
+        const saveMs = Math.round(performance.now() - saving);
         if (output.usage) console.info(JSON.stringify({ event: "scene_turn_timing", mode, totalMs: turn.timing, ...output.usage }));
-        return json(200, exposeEpisode(current, story, locale));
+        return { episode: exposeEpisode(current, story, locale), metrics: { saveMs, totalMs: Math.round(performance.now() - started) } };
       } finally {
         await store.unlockTurn(owner, current.id, token).catch(() => console.warn("Scene turn lease cleanup delayed"));
       }
+      };
+      if (request.headers.get("accept")?.includes("text/event-stream")) {
+        responseHeaders.set("Content-Type", "text/event-stream; charset=utf-8");
+        responseHeaders.set("Cache-Control", "no-store, no-transform");
+        const encoder = new TextEncoder(), started = performance.now();
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            let open = true, firstDeltaMs: number | undefined;
+            const emit = (event: string, data: unknown) => {
+              if (open) { try { controller.enqueue(encoder.encode(streamEvent(event, data))); } catch { open = false; } }
+            };
+            emit("turn.started", { version: current.turns.length, requestId });
+            const heartbeat = setInterval(() => emit("turn.progress", { elapsedMs: Math.round(performance.now() - started) }), 8000);
+            void processTurn(text => {
+              firstDeltaMs ??= Math.round(performance.now() - started);
+              emit("dialogue.delta", { text });
+            }).then(result => emit("state.committed", { ...result, metrics: { ...result.metrics, firstDeltaMs }, graph: "async" }))
+              .catch(error => {
+                console.warn("Scene streaming turn failed", error instanceof Error ? error.name : "unknown");
+                emit("turn.error", { error: error instanceof StudioError ? error.message : "응답을 완성하지 못했습니다. 저장 상태를 확인하고 다시 시도해 주세요." });
+              }).finally(() => { clearInterval(heartbeat); if (open) { open = false; controller.close(); } });
+          },
+        });
+        return new Response(body, { headers: responseHeaders });
+      }
+      return json(200, (await processTurn()).episode);
     } catch (err) {
       if (err instanceof StudioError) return json(err.status, { error: err.message });
       if (err instanceof z.ZodError) return json(400, { error: "필수 입력과 글자 수를 확인해 주세요." });

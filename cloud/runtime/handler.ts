@@ -15,6 +15,8 @@ import { expressionReply } from "../../lib/platform/expressions";
 import { sceneDemoModel } from "./scene-demo-model";
 import { sceneNarrativeModel } from "./scene-narrative-model";
 import { narrativeContext } from "../../lib/platform/narrative-graph";
+import { sceneStreamTurn } from "./scene-stream-turn";
+import { streamEvent } from "../../lib/platform/event-stream";
 const invocation = z
   .object({
     schemaVersion: z.enum(["character-turn/1", "character-turn/2"]),
@@ -22,7 +24,7 @@ const invocation = z
   })
   .strict();
 const warmup = z.object({ schemaVersion: z.literal("runtime-warmup/1") }).strict();
-export function createRuntimeServer(model: RuntimeModel = bedrockRuntimeModel) {
+export function createRuntimeServer(model: RuntimeModel = bedrockRuntimeModel, streamingModel?: RuntimeModel) {
   return createServer(async (req, res) => {
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Cache-Control", "no-store");
@@ -39,6 +41,7 @@ export function createRuntimeServer(model: RuntimeModel = bedrockRuntimeModel) {
     const started = performance.now();
     let schemaVersion: string | undefined;
     let stage: AgentFailureCode = "runtime_validation";
+    let streaming = false;
     req.on("aborted", () => abort.abort());
     try {
       const chunks: Buffer[] = [];
@@ -69,7 +72,14 @@ export function createRuntimeServer(model: RuntimeModel = bedrockRuntimeModel) {
       stage = "model_provider";
       const referee = model === bedrockRuntimeModel;
       const sceneDemo = referee && process.env.SCENE_DEMO_RUNTIME === "true";
-      const generate = sceneDemo ? input.context.narrative ? sceneNarrativeModel : sceneDemoModel : model;
+      streaming = !!req.headers.accept?.includes("text/event-stream") && (sceneDemo || !!streamingModel);
+      if (streaming) {
+        res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+        res.setHeader("Cache-Control", "no-store, no-transform");
+        res.flushHeaders();
+        res.write(streamEvent("runtime.ready", { schemaVersion }));
+      }
+      const generate = streaming ? streamingModel ?? sceneStreamTurn : sceneDemo ? input.context.narrative ? sceneNarrativeModel : sceneDemoModel : model;
       const { dialogueStatRules: _rules, ...narration } = input.context;
       void _rules;
       // These standalone messages cannot meet an authored action or image rule.
@@ -77,13 +87,14 @@ export function createRuntimeServer(model: RuntimeModel = bedrockRuntimeModel) {
         && /^(?:안녕(?:하세요)?|(?:너\s*)?이름이?\s*(?:뭐니|뭐야|뭔가요|뭐예요|뭐에요))[\s.!?。！?]*$/u.test(input.context.message);
       let refereeMs = 0;
       const judge = async () => {
-        if (!referee || quickExchange || input.context.narrative) return;
+        if (streaming || !referee || quickExchange || input.context.narrative) return;
         const began = performance.now();
         const verdict = await judgeTurnSignals(input.context, abort.signal);
         refereeMs = Math.round(performance.now() - began);
         return verdict;
       };
-      const [turn, verdict] = await Promise.all([generate(referee ? narration : input.context, abort.signal), judge()]);
+      const [turn, verdict] = await Promise.all([generate(streaming ? input.context : referee ? narration : input.context, abort.signal,
+        streaming ? { onTextDelta: text => { if (!res.destroyed) res.write(streamEvent("dialogue.delta", { text })); } } : undefined), judge()]);
       const posted = referee && verdict ? { ...turn, dialogueStatMatches: verdict.matches } : turn;
       const presented = verdict?.imageKey ? expressionReply(posted.text) : undefined;
       const returned = verdict?.imageKey && presented && !presented.key && !presented.mood && presented.text.length < 5960
@@ -102,14 +113,14 @@ export function createRuntimeServer(model: RuntimeModel = bedrockRuntimeModel) {
         )
       )
         throw new StudioError(502, "Response referenced an unavailable fact");
-      res.end(JSON.stringify({ schemaVersion: input.schemaVersion, reply }));
+      res.end(streaming ? streamEvent("runtime.complete", { schemaVersion: input.schemaVersion, reply }) : JSON.stringify({ schemaVersion: input.schemaVersion, reply }));
     } catch (error) {
       if (schemaVersion) {
         const code = error instanceof ModelTokenLimitError ? "model_limit" : error instanceof ModelOutputError ? "model_format" : stage;
         console.info(JSON.stringify({ event: "agentcore_turn_failure", code, durationMs: Math.round(performance.now() - started), awsError: safeAwsName(error), awsHttpStatus: safeAwsStatus(error) }));
         // Preserve the application failure across the AWS HTTP bridge without
         // leaking generated text, schema issues, arbitrary error strings or IDs.
-        res.end(JSON.stringify({ schemaVersion, error: "Runtime could not produce a usable turn", errorCode: code }));
+        res.end(streaming ? streamEvent("runtime.error", { errorCode: code }) : JSON.stringify({ schemaVersion, error: "Runtime could not produce a usable turn", errorCode: code }));
         return;
       }
       res.statusCode =

@@ -85,13 +85,13 @@ const lunaOpeningReply = lunaReply.extend({ sceneBeat: lunaBeat.describe("One gr
 const lunaFollowUpReply = lunaReply.extend({ sceneBeat: lunaBeat.optional().describe("Only for a changed scene or a newly useful grounded detail.") });
 const tokenCount = z.number().int().nonnegative().optional();
 export const runtimeUsageSchema = z.object({ inputTokens: tokenCount, outputTokens: tokenCount, cacheReadInputTokens: tokenCount, cacheWriteInputTokens: tokenCount, reasoningTokens: tokenCount, bedrockMs: z.number().int().nonnegative(),
-  agentCoreHeadersMs: tokenCount, agentCoreBodyMs: tokenCount, agentCoreStopMs: tokenCount, refereeMs: tokenCount, interpretationMs: tokenCount, graphMs: tokenCount,
+  agentCoreHeadersMs: tokenCount, agentCoreBodyMs: tokenCount, agentCoreStopMs: tokenCount, refereeMs: tokenCount, interpretationMs: tokenCount, graphMs: tokenCount, firstContentMs: tokenCount, serviceFirstContentMs: tokenCount, metadataMs: tokenCount,
 }).strict();
-export const runtimeReplyWithUsageSchema = runtimeReplySchema.extend({ usage: runtimeUsageSchema.optional() });
+export const runtimeReplyWithUsageSchema = runtimeReplySchema.extend({ usage: runtimeUsageSchema.optional(), imageKey: z.enum(["neutral", "focused", "concerned", "relieved"]).optional() });
 export type RuntimeModel = (
   context: z.infer<typeof runtimeContextSchema>,
   signal?: AbortSignal,
-  execution?: { episodeScope?: string },
+  execution?: { episodeScope?: string; onTextDelta?: (text: string) => void | Promise<void> },
 ) => Promise<z.infer<typeof runtimeReplyWithUsageSchema>>;
 export function responseLanguageInstruction(language: Parameters<RuntimeModel>[0]["responseLanguage"]) {
   if (!language) return "";
