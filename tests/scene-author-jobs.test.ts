@@ -1,3 +1,5 @@
+import{applyAuthorProposal}from'../examples/agentcore-character-demo/web/creator-apply.js';
+import{preserveCreatorBindings}from'../examples/agentcore-character-demo/creator-bindings';
 import{test}from'node:test';import assert from'node:assert/strict';import{mkdtempSync}from'node:fs';import{tmpdir}from'node:os';import{join}from'node:path';import{randomUUID}from'node:crypto';
 import{blankCreator}from'../examples/agentcore-character-demo/creator';
 import{sqliteAuthorJobs,type AuthorQueue}from'../examples/agentcore-character-demo/creator-job-store';
@@ -15,3 +17,27 @@ test('ending-only replanning reuses identical foundation and scene inputs',async
 test('completed conflict and minimum scene turns are both required; final arrival alone cannot end',async()=>{const s=setup(),job=await createAuthorJob(s.store,owner,{requestId:randomUUID(),document:s.base,brief,webSearch:false});await dispatchAuthorJob(s.store,s.queue,job);await drain(s,runner(plan(),[]));const d=publicAuthorJob(job,await s.store.tasks(owner,job.id)).document.narrative;let state=initialNarrativeState(d);const move=(event?:string,transition?:string)=>{state=advanceNarrative(d,state,'문제를 해결하고 다음 여정으로 이동할게',{events:event?[{id:event,quote:'문제를 해결하고'}]:[],transition:transition?{id:transition,quote:'다음 여정으로 이동'}:null}).state;};move(undefined,'to-king');move(undefined,'to-king');move(undefined,'to-king');assert.equal(state.scene,'home');move('finish-home','to-king');assert.equal(state.scene,'king');move();move();move('finish-king','to-well');assert.equal(state.scene,'well');assert.equal(state.ending,undefined);move('finish-well');assert.equal(state.ending,undefined);move();move('finish-well');assert.equal(state.ending,'return');});
 test('planner rejects cyclic production dependencies and unknown references',()=>{const p=plan();p.scenes[0].dependsOn=['king'];p.scenes[1].dependsOn=['home'];assert.throws(()=>validateAuthorPlan(p),/循|순환/);const q=plan();q.actions[0].effects[0].counter='unknown';assert.throws(()=>validateAuthorPlan(q),/참조/);});
 test('dependent scene waits for its predecessor; completion applies an eligible linked reward exactly once',async()=>{const s=setup(),p=plan(),calls:string[]=[];p.scenes[1].dependsOn=['home'];p.scenes[2].completionActions=['listen'];p.actions[0].once=true;const job=await createAuthorJob(s.store,owner,{requestId:randomUUID(),document:s.base,brief,webSearch:true});await dispatchAuthorJob(s.store,s.queue,job);const run:TaskRunner=async a=>{assert.equal(a.webSearch,true);return runner(p,calls)(a);};await executeAuthorTask(s.store,s.queue,s.pending.shift(),{run});await executeAuthorTask(s.store,s.queue,s.pending.shift(),{run});assert.deepEqual(new Set(s.pending.map(x=>x.taskId)),new Set(['scene-home','scene-well']));assert.equal((await s.store.tasks(owner,job.id)).find(x=>x.id==='scene-king')!.status,'queued');await drain(s,run);const d=publicAuthorJob(job,await s.store.tasks(owner,job.id)).document.narrative;let state=initialNarrativeState(d);for(const scene of d.scenes){for(let i=0;i<2;i++)state=advanceNarrative(d,state,'준비를 계속할게',{events:[],transition:null}).state;state=advanceNarrative(d,state,'문제를 해결하고 다음 장소로 갈게',{events:[{id:'finish-'+scene.id,quote:'문제를 해결하고'}],transition:null}).state;}assert.equal(state.counters.bond,65);assert.equal(state.events.filter(e=>e.id==='listen').length,1);});
+
+test('template media follows the generated main character and repaired bindings survive apply',async()=>{
+ const s=setup();s.base.assets=[{id:'smile',label:'미소',file:s.base.profile.cover,characterId:'lead',kind:'expression'}];
+ s.base.narrative.media=[{id:'smile',characterId:'lead',emotion:'happy',when:'기뻐할 때',scenes:['opening'],conditions:[],priority:50,once:false,cooldown:2}];
+ const job=await createAuthorJob(s.store,owner,{requestId:randomUUID(),document:s.base,brief,webSearch:false});await dispatchAuthorJob(s.store,s.queue,job);await drain(s,runner(plan(),[]));
+ const result=publicAuthorJob(job,await s.store.tasks(owner,job.id));assert.equal(result.status,'completed');
+ assert.equal(result.document.narrative.media[0].characterId,'prince');assert.deepEqual(result.document.narrative.media[0].scenes,['home']);assert.equal(result.document.assets[0].characterId,'prince');
+ const current=structuredClone(s.base);current.assets[0].file='/art/outer-cover.webp';
+ const applied=applyAuthorProposal(result.document,current);assert.equal(applied.narrative.media[0].characterId,'prince');assert.equal(applied.assets[0].characterId,'prince');assert.equal(applied.assets[0].file,'/art/outer-cover.webp');assert.equal(s.base.narrative.media[0].characterId,'lead');
+});
+test('existing media identities resolve by unique name without removing scene or stat gates',()=>{
+ const base=blankCreator();base.narrative.id='existing';base.narrative.characters![0].name='왕자';base.narrative.scenes[0].title='왕의 별';base.narrative.counters[0].label='용기';
+ base.narrative.media=[{id:'smile',characterId:'lead',emotion:'happy',when:'기뻐할 때',scenes:['opening'],conditions:[{counter:'hp',op:'gte',value:20}],priority:50,once:false,cooldown:2}];
+ const next=structuredClone(base);next.narrative.characters![0].id='prince';next.narrative.scenes[0].id='king';next.narrative.counters[0].id='courage';
+ const fixed=preserveCreatorBindings(base,next);assert.equal(fixed.narrative.media![0].characterId,'prince');assert.deepEqual(fixed.narrative.media![0].scenes,['king']);assert.deepEqual(fixed.narrative.media![0].conditions,[{counter:'courage',op:'gte',value:20}]);
+ next.narrative.counters[0].label='연료';assert.throws(()=>preserveCreatorBindings(base,next),/스탯 연결/);assert.deepEqual(base.narrative.media![0].conditions,[{counter:'hp',op:'gte',value:20}]);
+});
+test('fixed deterministic assembly can retry after three failures without repeating a model call',async()=>{
+ const s=setup(),calls:string[]=[],job=await createAuthorJob(s.store,owner,{requestId:randomUUID(),document:s.base,brief,webSearch:false});await dispatchAuthorJob(s.store,s.queue,job);await drain(s,runner(plan(),calls));
+ const tasks=await s.store.tasks(owner,job.id),assembly=tasks.find(t=>t.id==='assemble')!,before=tasks.filter(t=>t.kind!=='assemble').map(t=>[t.id,t.completedAt]);
+ await s.store.replaceTask({...assembly,status:'failed',attempt:3,result:undefined,error:'narrative: Unknown media character',revision:assembly.revision+1},assembly.revision);
+ await retryAuthorTask(s.store,s.queue,job,'assemble');await drain(s,async()=>{throw Error('모델을 다시 호출하면 안 됩니다.');});
+ const after=await s.store.tasks(owner,job.id);assert.equal(publicAuthorJob(job,after).status,'completed');assert.deepEqual(after.filter(t=>t.kind!=='assemble').map(t=>[t.id,t.completedAt]),before);
+});

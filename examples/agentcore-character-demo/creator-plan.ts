@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {preserveCreatorBindings} from './creator-bindings';
 import {creatorDocumentSchema,inspectCreator,type CreatorDocument} from './creator';
 import {narrativeDefinitionSchema as N} from '../../lib/platform/narrative-graph';
 const id=z.string().regex(/^[a-z][a-z0-9-]{0,45}$/);
@@ -54,6 +55,6 @@ export function assembleAuthorDocument(base:CreatorDocument,p:AuthorPlan,foundat
  // A final ending spanning alternatives requires completion of its actual current scene, represented as separate rows.
  d.narrative.endings=d.narrative.endings.flatMap(e=>(e.requiresEvents?.length??0)>1?e.scenes.map((s,i)=>({...e,id:e.id+'-'+i,scenes:[s],requiresEvents:['finish-'+s]})):[e]);
  d.starts=[{id:'default',title:'기본 시작',sceneId:p.scenes[0].id,prologue:connection.prologue,greeting:connection.greeting,values:{}}];
- const checked=inspectCreator(d);if(!checked.ok)throw Error(checked.errors.slice(0,5).map(e=>e.path+': '+e.message).join('\n'));
+ const checked=inspectCreator(preserveCreatorBindings(base,d));if(!checked.ok)throw Error(checked.errors.slice(0,5).map(e=>e.path+': '+e.message).join('\n'));
  return creatorDocumentSchema.parse(checked.document);
 }
