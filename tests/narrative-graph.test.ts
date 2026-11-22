@@ -118,7 +118,7 @@ test("public data excludes private definitions and English/Japanese preserve the
     const localized = localizeStory(story, locale), publicData = publicStory(localized);
     assert.equal(publicData.hasNarrative, true); assert.equal(publicData.previewTurns?.length, 3);
     assert.equal("narrative" in publicData, false); assert.equal("facts" in publicData, false);
-    assert.equal(initialNarrativeState(localized.narrative!).definitionHash, initialNarrativeState(definition).definitionHash);
+    assert.equal(initialNarrativeState(localized.narrative!).definitionHash, initialNarrativeState(story.narrative!).definitionHash);
   }
 });
 

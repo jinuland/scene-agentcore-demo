@@ -58,6 +58,14 @@ CloudFront uses Origin Access Control to call the IAM-protected Lambda Function 
 
 See the [demo notes in Korean](examples/agentcore-character-demo/README.md) for story and artwork credits and details about the model calls.
 
+## World engine for every story · 2026-11-22
+
+All five built-in works—Star Wars, the summoning academy, the record-bar reunion, BL radio, and Sarang—have authored scenes, gated facts, actions, stats, plot threads, and multiple endings. Custom works receive a small baseline graph that retains the creator's setting. Free dialogue stays available; only authored graph conditions can commit scene changes and endings.
+
+The desktop sidebar shows **current state, location, story time, stats, active plot threads, world background, and recent changes**. On mobile, open the status button in the chat header. Suggestions are selected from eligible authored choices without another model call. Completed one-time actions disappear, and actions that advance the current plot take priority. Selecting an exact eligible action suggestion executes its authored graph action directly and skips the interpretation model; free text still uses Haiku.
+
+Existing graph episodes keep their pinned rules. Older episodes without a graph retain their transcript and begin explicit world tracking with subsequent turns. Historical actions are not invented or backfilled. See the [world-engine guide](docs/world-engine-guide.md) (Korean) for story paths, ending branches, persistence, and limitations.
+
 ## Streaming and asynchronous graph projection · 2026-11-22
 
 **Claude Sonnet 5.5** is the default; 14 models including Sonnet 5 are selectable. Plain dialogue deltas stream end to end through Bedrock, AgentCore SSE, Lambda RESPONSE_STREAM and the browser. JSON frames individual SSE events and compact metadata; it no longer buffers a complete dialogue object.

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { NarrativeDefinition } from "../../lib/platform/narrative-graph";
+import { withWorldEngine } from "./world-definitions";
 import { sarangStory } from "./sarang-story";
 import { storyBeats } from "../../lib/platform/story-beats";
 import { benchmarkStarter } from "../../lib/studio/benchmark-starters";
@@ -20,12 +21,13 @@ export type Story = {
   previewTurns?: readonly PreviewTurn[];
   prologueImages?: { file: string; label: string }[];
   narrative?: NarrativeDefinition;
+  narrativePresentation?: NarrativeDefinition;
 };
 const art = (key: string) => `/art/${key}.webp`;
 const radio = benchmarkStarter("너와 나만 듣는 트랙", "radio");
 const seoyun = record.characters[0];
 const eungyeol = radio.characters[0];
-export const stories: Story[] = [
+const authoredStories: Story[] = [
   sarangStory,
   {
     id: "academy", title: "퇴학까지 9일, 내 소환사는 낙제생", genre: "판타지",
@@ -114,6 +116,7 @@ export const stories: Story[] = [
     },
   },
 ];
+export const stories: Story[] = authoredStories.map(withWorldEngine);
 export const draftSchema = z.object({
   title: z.string().trim().min(1).max(48), name: z.string().trim().min(1).max(24), genre: z.enum(genres),
   setting: z.string().trim().min(1).max(700), role: z.string().trim().min(1).max(120), greeting: z.string().trim().min(1).max(400),
@@ -121,13 +124,13 @@ export const draftSchema = z.object({
 }).strict();
 export function draftStory(id: string, draft: z.infer<typeof draftSchema>): Story {
   const sample = stories.find(s => s.id === draft.cover)!;
-  return {
+  return withWorldEngine({
     id, custom: true, title: draft.title, character: draft.name, genre: draft.genre,
     tagline: draft.setting, prologue: draft.setting, setting: draft.setting, role: draft.role, greeting: draft.greeting,
     cover: sample.cover, scene: "첫 장면", job: "현재 이야기에서 플레이어와 대화하는 인물", voice: "장면과 인물 설정에 맞는 자연스러운 한국어 말투.",
     facts: [], suggestions: ["지금 무슨 일이 있었나요?", "먼저 자기소개를 해 주세요."], trustWhen: draft.trustWhen || undefined,
     cards: { neutral: { file: sample.cover, label: "작품 표지" } },
-  };
+  });
 }
 export const publicStory = ({ id, title, genre, tagline, role, scene, prologue, greeting, cover, character, job, suggestions, cards, custom, trustWhen, objective, premiseBadge, source, field, previewTurns, prologueImages, narrative }: Story) => ({
   id, title, genre, tagline, role, scene, prologue, greeting, cover, character, job, suggestions, custom, hasTrust: !!trustWhen, objective, premiseBadge, source, field, prologueImages, hasNarrative: !!narrative,

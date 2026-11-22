@@ -12,7 +12,7 @@ import { createRuntimeServer } from "../cloud/runtime/handler";
 import { createSceneService } from "../examples/agentcore-character-demo/service";
 import { sqliteStore } from "../examples/agentcore-character-demo/sqlite-store";
 import { stories } from "../examples/agentcore-character-demo/stories";
-import { initialNarrativeState } from "../lib/platform/narrative-graph";
+import { advanceNarrative, initialNarrativeState } from "../lib/platform/narrative-graph";
 import { sceneGraphProjection } from "../examples/agentcore-character-demo/graph-projection";
 
 test("SSE frames preserve Korean split across byte chunks and reject truncated JSON", async () => {
@@ -62,13 +62,15 @@ test("service commits before acknowledging, reloads canonical state, deduplicate
     return response;
   };
   const original = BedrockAgentCoreClient.prototype.send;
-  BedrockAgentCoreClient.prototype.send = (async () => {
+  BedrockAgentCoreClient.prototype.send = (async (command: { input: {payload: Uint8Array} }) => {
+    const {context} = JSON.parse(Buffer.from(command.input.payload).toString());
+    const narrativeState = advanceNarrative(context.narrative.definition, context.narrative.state, context.message, {events:[],transition:null}).state;
     calls++;
     return { statusCode: 200, response: (async function* () {
       const encode = (e: string, d: unknown) => new TextEncoder().encode(streamEvent(e, d));
       yield encode("dialogue.delta", { text: "[Action] She waves.\n\n[Dialogue] Hello, Jian." });
       if (failStream) { yield encode("runtime.error", { errorCode: "model_provider" }); return; }
-      yield encode("runtime.complete", { schemaVersion: "character-turn/1", reply: { text: "[Action] She waves.\n\n[Dialogue] Hello, Jian.", imageKey: "focused", usedFactIds: [], memories: [{ kind: "claim", predicate: "said", source: "user", quote: "나는 지안이야" }] } });
+      yield encode("runtime.complete", { schemaVersion: "character-turn/1", reply: { text: "[Action] She waves.\n\n[Dialogue] Hello, Jian.", narrativeState, imageKey: "focused", usedFactIds: [], memories: [{ kind: "claim", predicate: "said", source: "user", quote: "나는 지안이야" }] } });
     })() };
   }) as never;
   try {

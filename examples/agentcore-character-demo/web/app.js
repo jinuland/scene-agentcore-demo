@@ -207,13 +207,26 @@ function statusPanel(story, episode) {
 }
 function narrativePanel(story, episode) {
   const n = episode.narrative;
-  const clock = new Intl.DateTimeFormat(locale, {timeZone:"Asia/Seoul", month:"short", day:"numeric", weekday:"short", hour:"2-digit", minute:"2-digit", hour12:false}).format(new Date(n.time));
+  const clock = n.clockStyle === "elapsed" ? t("경과 {minutes}분", {minutes:n.elapsedMinutes}) : new Intl.DateTimeFormat(locale, {timeZone:"Asia/Seoul", month:"short", day:"numeric", weekday:"short", hour:"2-digit", minute:"2-digit", hour12:false}).format(new Date(n.time)) + ' · ' + t('{day}일차', {day:n.day});
+  const block = (title, content, extra = "") => '<section class="status-block ' + extra + '"><h3>' + esc(t(title)) + '</h3>' + content + '</section>';
+  const active = (n.ending ? [] : n.threads ?? []).filter(thread => thread.status === "active");
+  const unfinished = n.ending ? (n.threads ?? []).filter(thread=>thread.status === "active") : [];
+  const resolved = (n.threads ?? []).filter(thread => thread.status === "resolved");
+  const threads = list => list.map(thread => '<article class="plot-thread"><strong>' + esc(t(thread.title)) + '</strong><p>' + esc(t(thread.description)) + '</p></article>').join("");
   return iconButton('data-status="close"', "close", t("상태창 닫기"), "status-close") +
-    '<h2 id="status-heading">' + icon("statusIcon") + t("상태창") + '</h2>' +
-    image(story.cards.neutral.file, story.cards.neutral.label, "status-image", true) +
-    '<dl class="status-block"><dt>' + t("이야기 시간") + '</dt><dd>' + esc(clock) + ' · ' + t('{day}일차', {day:n.day}) + '</dd><dt>' + t("현재 장면") + '</dt><dd>' + esc(t(n.scene)) + '</dd><dt>' + t("장소") + '</dt><dd>' + esc(t(n.location)) + '</dd><dt>' + t("목표") + '</dt><dd>' + esc(t(n.objective)) + '</dd><dt>' + t("대화 턴") + '</dt><dd>' + n.turns + '</dd></dl>' +
-    n.counters.map(c => '<div class="status-block"><p class="stat-heading">' + esc(t(c.label)) + '<span class="stat-value">' + c.value + ' / ' + c.max + (c.unit === '%' ? '%' : '') + '</span></p><progress max="' + c.max + '" value="' + c.value + '" aria-label="' + esc(t(c.label)) + '"></progress></div>').join("") +
-    (n.ending ? '<div class="status-block"><p class="kicker">ENDING</p><strong>' + esc(t(n.ending.title)) + '</strong></div>' : n.gates.map(gate => '<div class="status-block"><p class="stat-heading">' + t("다음 장면") + '</p><p>' + esc(t(gate.label)) + '</p><p class="caption">' + esc(t("장면 대화 {actual}/{minimum}턴", {actual:n.sceneTurns, minimum:gate.minimumTurns})) + '</p>' + gate.conditions.map(c => '<p class="caption">' + esc(t(c.label)) + ' ' + (c.op === 'gte' ? '≥' : c.op === 'lte' ? '≤' : '=') + ' ' + c.value + ' · ' + t("현재") + ' ' + c.actual + '</p>').join("") + '<p class="status-change">' + t(gate.ready ? "준비 완료 · 원할 때 다음 행동을 선택하세요." : "함께 나눈 경험과 선택에 따라 열립니다.") + '</p></div>').join("")) +
+    '<h2 id="status-heading">' + icon("statusIcon") + t("세계와 현재 상태") + '</h2>' +
+    block("현재 상태", '<p class="world-scene">' + esc(t(n.scene)) + '</p><dl><dt>' + t("장소") + '</dt><dd>' + esc(t(n.location)) + '</dd><dt>' + esc(t(n.clockLabel ?? "이야기 시간")) + '</dt><dd>' + esc(clock) + '</dd>' +
+      (n.fields ?? []).map(field => '<dt>' + esc(t(field.label)) + '</dt><dd>' + esc(t(field.value)) + '</dd>').join("") +
+      '<dt>' + t("대화 턴") + '</dt><dd>' + episode.turns.length + '</dd></dl>') +
+    (n.world?.trackingSinceTurn > 0 ? '<p class="tracking-note">' + esc(t("기존 {count}턴은 보존됩니다. 세계 상태는 이후 대화부터 기록합니다.", {count:n.world.trackingSinceTurn})) + '</p>' : '') +
+    block("지금의 목표", '<p>' + esc(t(n.objective)) + '</p>', 'current-goal') +
+    block("스탯", '<div class="world-stats">' + n.counters.map(c => '<div><p class="stat-heading">' + esc(t(c.label)) + '<span class="stat-value">' + c.value + ' / ' + c.max + (c.unit ? ' ' + esc(t(c.unit)) : '') + '</span></p><progress max="' + c.max + '" value="' + c.value + '" aria-label="' + esc(t(c.label)) + '"></progress></div>').join("") + '</div>') +
+    block("진행 중인 사건", active.length ? threads(active) : '<p class="caption">' + t(n.ending ? "이번 회차를 마무리했습니다." : "현재 진행 중인 사건이 없습니다.") + '</p>') +
+    (n.world?.summary ? block("세계관", '<p>' + esc(t(n.world.summary)) + '</p><details><summary>' + t("현재 공개된 사실") + ' · ' + n.world.facts.length + '</summary><ul class="world-facts">' + n.world.facts.map(fact=>'<li>' + esc(t(fact.text)) + '</li>').join("") + '</ul></details>') : '') +
+    ((n.timeline ?? []).length ? block("최근 변화", '<ol class="world-timeline">' + n.timeline.map(event=>'<li><span>' + esc(t("{turn}턴", {turn:event.turn})) + '</span><strong>' + esc(t(event.label)) + '</strong></li>').join("") + '</ol>') : '') +
+    (unfinished.length ? '<details class="status-block"><summary>' + t("미완료로 남은 사건") + ' · ' + unfinished.length + '</summary><p class="caption">' + t("이 회차에서는 마무리하지 않았습니다.") + '</p>' + threads(unfinished) + '</details>' : '') +
+    (resolved.length ? '<details class="status-block"><summary>' + t("마무리한 사건") + ' · ' + resolved.length + '</summary>' + threads(resolved) + '</details>' : '') +
+    (n.ending ? block("이번 회차의 엔딩", '<strong>' + esc(t(n.ending.title)) + '</strong><p>' + esc(t(n.ending.text)) + '</p>', 'current-goal') : '<details class="status-block"><summary>' + t("다음 장면의 조건") + '</summary>' + n.gates.map(gate => '<p><strong>' + esc(t(gate.label)) + '</strong></p><p class="caption">' + esc(t("장면 대화 {actual}/{minimum}턴", {actual:n.sceneTurns, minimum:gate.minimumTurns})) + '</p>' + gate.conditions.map(c => '<p class="caption">' + esc(t(c.label)) + ' ' + (c.op === 'gte' ? '≥' : c.op === 'lte' ? '≤' : '=') + ' ' + c.value + ' · ' + t("현재") + ' ' + c.actual + '</p>').join("") + '<p class="caption">' + t(gate.ready ? "준비 완료 · 원할 때 다음 행동을 선택하세요." : "함께 나눈 경험과 선택에 따라 열립니다.") + '</p>').join("") + '</details>') +
     '<p class="caption ending-count">' + t("발견할 수 있는 엔딩 {count}개", {count:n.endingCount}) + '</p><div class="status-foot">' + button("btn", 'data-gallery="open"', t("이미지 보관함"), "imageIcon") + button("btn", 'data-start="' + esc(story.id) + '"', t("새 회차"), "spark") + '</div>';
 }
 function suggestions(story, episode) {

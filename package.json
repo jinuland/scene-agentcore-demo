@@ -1,6 +1,6 @@
 {
   "name": "scene-agentcore-demo",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "private": true,
   "engines": {
@@ -34,6 +34,6 @@
     "synth": "npm run build && cdk synth --quiet",
     "deploy": "npm run build && node -e \"require('node:fs').mkdirSync('outputs', { recursive: true })\" && cdk deploy --outputs-file outputs/scene-demo-stack.json",
     "demo:character": "node --env-file-if-exists=.env.local --import tsx examples/agentcore-character-demo/server.ts",
-    "test": "tsx --test tests/narrative-graph.test.ts tests/scene-streaming.test.ts"
+    "test": "tsx --test tests/narrative-graph.test.ts tests/scene-streaming.test.ts tests/scene-world.test.ts"
   }
 }
