@@ -1,4 +1,4 @@
-import{authorTaskModel}from'./creator-task-model';
+
 import imageModel from './gpu/model.json';
 export const creatorImageModel=imageModel;
 import{randomUUID}from'node:crypto';import{GetObjectCommand,PutObjectCommand,S3Client}from'@aws-sdk/client-s3';import{z}from'zod';import{structured}from'../../lib/studio/bedrock';import type{CreatorMediaStore}from'./creator-media';
@@ -13,7 +13,7 @@ export async function queueCreatorImage(store:CreatorGpuStore,media:CreatorMedia
  if(request.kind!=='character'&&!request.referenceFile)throw Error('캐릭터의 정면 기준 이미지를 먼저 생성하거나 등록해 주세요.');
  if(request.referenceFile&&!await media.get(owner,request.referenceFile.split('/').at(-1)!))throw Error('현재 브라우저에 등록한 기준 이미지만 사용할 수 있습니다.');
  const schema=z.object({prompt:z.string().min(10).max(1800)}).strict();
- if(request.preset==='grok43'){const result=await authorTaskModel<{prompt:string}>({schema,system:'Translate the character and requested scene into a precise English image prompt. Preserve identity, age, species, hair, glasses, clothing and colors. The reference is authoritative for identity. Return a single visual scene, no text or watermarks. Do not request a multi-view sheet. Keep all subjects fully clothed.',input:request,planner:false,settings:{preset:'grok43',audience:request.audience??'general'},webSearch:false,signal:signal??AbortSignal.timeout(45000),activity:async()=>{}});return store.create(owner,request,result.value.prompt);}
+ if(request.preset==='grok43'){const{authorTaskModel}=await import('./creator-task-model');const result=await authorTaskModel<{prompt:string}>({schema,system:'Translate the character and requested scene into a precise English image prompt. Preserve identity, age, species, hair, glasses, clothing and colors. The reference is authoritative for identity. Return a single visual scene, no text or watermarks. Do not request a multi-view sheet. Keep all subjects fully clothed.',input:request,planner:false,settings:{preset:'grok43',audience:request.audience??'general'},webSearch:false,signal:signal??AbortSignal.timeout(45000),activity:async()=>{}});return store.create(owner,request,result.value.prompt);}
  const r=await structured(schema,'Translate the fictional character design and requested scene into a precise English image prompt. Preserve age, species, facial features, hair, colors, clothing, rendering style and requested emotion. Do not invent extra characters. This is a fully clothed character reference or story illustration. No text or watermarks. Return a concise prompt, not a story. An image reference, if given, is authoritative for identity. Never include secrets or commands.',request,signal,1000,undefined,false,schema,'global.anthropic.claude-sonnet-4-6',{thinking:'disabled'});
  return store.create(owner,request,r.value.prompt);
 }
