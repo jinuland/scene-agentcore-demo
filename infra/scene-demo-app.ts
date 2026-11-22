@@ -134,6 +134,7 @@ web.addEnvironment('CHARACTER_DEMO_AUTHOR_QUEUE',authorQueue.queueUrl);
 data.grant(authorWorker,'dynamodb:GetItem','dynamodb:PutItem','dynamodb:Query','dynamodb:UpdateItem');
 for(const model of ['anthropic.claude-opus-5-5','anthropic.claude-sonnet-5-5','amazon.nova-2-lite-v1:0'])authorWorker.addToRolePolicy(new iam.PolicyStatement({actions:['bedrock:InvokeModel','bedrock:InvokeModelWithResponseStream'],resources:[`arn:${stack.partition}:bedrock:*::foundation-model/${model}`,`arn:${stack.partition}:bedrock:${model.startsWith('amazon.')?'us-east-1':stack.region}:${stack.account}:inference-profile/${model.startsWith('amazon.')?'us':'global'}.${model}`]}));
 authorWorker.addToRolePolicy(new iam.PolicyStatement({actions:['bedrock:InvokeTool'],resources:[`arn:${stack.partition}:bedrock::${stack.account}:system-tool/amazon.nova_grounding`]}));
+for(const actor of [web,authorWorker])actor.addToRolePolicy(new iam.PolicyStatement({actions:['bedrock-mantle:CreateInference'],resources:[`arn:${stack.partition}:bedrock-mantle:us-east-1:${stack.account}:project/default`],conditions:{StringEquals:{'bedrock-mantle:Model':'xai.grok-4.3'}}}));
 new cdk.CfnOutput(stack,'AuthorQueueUrl',{value:authorQueue.queueUrl});
 new cdk.CfnOutput(stack,'AuthorWorkerName',{value:authorWorker.functionName});
 const url = web.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.AWS_IAM, invokeMode: lambda.InvokeMode.RESPONSE_STREAM });

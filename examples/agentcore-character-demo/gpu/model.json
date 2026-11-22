@@ -1,0 +1,18 @@
+{
+  "id": "Qwen/Qwen-Image-2.1",
+  "label": "Qwen-Image-2.1",
+  "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
+  "pipeline": "QwenImage21Pipeline",
+  "steps": 40,
+  "width": 1024,
+  "height": 1024,
+  "referenceMaxEdge": 1024,
+  "selection": {
+    "source": "image-bench_실험결과_20261118/results/faces_summary.json",
+    "metric": "ArcFace cosine similarity",
+    "qwenMean": 0.87,
+    "qwenCount": 40,
+    "h3RawMean": 0.659,
+    "h3ExpandedMean": 0.664
+  }
+}

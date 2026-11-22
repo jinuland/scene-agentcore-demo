@@ -6,7 +6,7 @@ const id=z.string().regex(/^[a-z][a-z0-9-]{0,45}$/);
 const gates=N.shape.transitions.element.shape.conditions;
 export const authorPlanSchema=z.object({
  summary:z.string().min(1).max(1200),requirements:z.array(z.string().max(400)).max(24),assumptions:z.array(z.string().max(400)).max(12),
- characters:z.array(z.object({id,name:z.string().min(1).max(80),role:z.string().max(160)}).strict()).min(1).max(12),
+ characters:z.array(z.object({id,name:z.string().min(1).max(80),age:z.number().int().min(0).max(10000).optional(),role:z.string().max(160)}).strict()).min(1).max(12),
  counters:N.shape.counters,
  actions:z.array(z.object({id,label:z.string().max(100),when:z.string().max(300),scenes:z.array(id).max(24),once:z.boolean(),effects:N.shape.events.element.shape.effects,conditions:gates}).strict()).max(20),
  scenes:z.array(z.object({id,title:z.string().max(100),speaker:id,location:z.string().max(100),objective:z.string().max(250),entry:z.string().max(350),exit:z.string().max(350),minTurns:z.number().int().min(1).max(12),completionActions:z.array(id).max(4).default([]),dependsOn:z.array(id).max(24)}).strict()).min(1).max(24),

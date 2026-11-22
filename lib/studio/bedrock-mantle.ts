@@ -31,7 +31,7 @@ export class MantleCapacityError extends StudioError {
   }
 }
 
-async function mantleRequest(region: string, path: string, body: string, signal: AbortSignal, classifyCapacity = false): Promise<MantleOutput> {
+async function mantleFetch(region: string, path: string, body: string, signal: AbortSignal, classifyCapacity = false): Promise<Response> {
   const hostname = `bedrock-mantle.${region}.api.aws`;
   let headers: Record<string, string> = { host: hostname, "content-type": "application/json" };
   const key = process.env.AWS_BEARER_TOKEN_BEDROCK;
@@ -50,7 +50,16 @@ async function mantleRequest(region: string, path: string, body: string, signal:
     throw new StudioError(res.status === 429 ? 429 : 502,
       res.status === 429 ? "Bedrock 호출 한도에 도달했습니다. 잠시 후 다시 시도하세요." : "Bedrock Mantle 호출에 실패했습니다. 모델 사용 권한·리전을 확인하세요.");
   }
-  return await res.json() as MantleOutput;
+  return res;
+}
+
+async function mantleRequest(region:string,path:string,body:string,signal:AbortSignal,classifyCapacity=false):Promise<MantleOutput>{return await(await mantleFetch(region,path,body,signal,classifyCapacity)).json()as MantleOutput;}
+export type MantleToolMessage={role:'system'|'user'|'assistant'|'tool';content:string|null;tool_call_id?:string;tool_calls?:{id:string;type:'function';function:{name:string;arguments:string}}[];reasoning_content?:string};
+export async function mantleToolTurn(options:{system:string;messages:MantleToolMessage[];tools:{name:string;description?:string;inputSchema:object}[];effort:'high'|'medium';requireTool?:boolean;maxTokens:number;signal:AbortSignal}){
+ const region='us-east-1';const response=await mantleFetch(region,'/openai/v1/chat/completions',JSON.stringify({model:grok43FoundationModel,stream:false,reasoning_effort:options.effort,max_tokens:options.maxTokens,parallel_tool_calls:false,...(options.requireTool?{tool_choice:'required'}:{}),messages:[{role:'system',content:options.system},...options.messages],tools:options.tools.map(t=>({type:'function',function:{name:t.name,description:t.description,parameters:t.inputSchema}}))}),options.signal,true);
+ const result=await response.json()as{choices?:{message?:MantleToolMessage;finish_reason?:string}[];usage?:MantleOutput['usage']};
+ const choice=result.choices?.[0];if(!choice?.message)throw new StudioError(502,'Grok 제작 응답을 받지 못했습니다.');
+ return{message:choice.message,finishReason:choice.finish_reason,usage:mantleUsage(result.usage)};
 }
 
 function mantleUsage(usage: MantleOutput["usage"]) {

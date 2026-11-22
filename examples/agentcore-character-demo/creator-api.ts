@@ -1,7 +1,8 @@
+import{creatorMcpServices}from'./creator-mcp-services';
 import littlePrinceExample from'./examples/little-prince.json';
 import type{AuthorJobStore,AuthorQueue}from'./creator-job-store';
 import{authorJobRequest,createAuthorJob,dispatchAuthorJob,publicAuthorJob,retryAuthorTask}from'./creator-jobs';
-import {gpuRequestSchema,queueCreatorImage,publicGpuJob,type CreatorGpuStore} from "./creator-gpu";
+import {creatorImageModel,gpuRequestSchema,queueCreatorImage,publicGpuJob,type CreatorGpuStore} from "./creator-gpu";
 import {partnerRequestSchema,runCreatorPartner} from "./creator-partner";
 import {assistCreator,authorBriefSchema} from "./creator-assist";
 import { randomUUID } from "node:crypto";
@@ -22,7 +23,7 @@ export async function creatorApi(args:{path:string;request:Request;owner:string;
  if(method==='GET'&&path==='/api/creator/examples/little-prince')return json(200,{document:creatorDocumentSchema.parse(littlePrinceExample)});
  if(method==='GET'&&path==='/api/creator/template')return json(200,{document:blankCreator()});
  if(method==='GET'&&path==='/api/creator'){
-  const own=await store.drafts(owner);return json(200,{drafts:own.filter(s=>s.creator?.status==='draft').map(s=>({id:s.id,title:s.title,revision:s.creator!.revision})),sources:[...builtins,...own.filter(s=>s.creator?.status!=='draft'&&!s.creator?.preview)].map(s=>({id:s.id,title:s.title,version:s.narrative?.version??1,custom:!!s.custom})),gpu:{enabled:!!args.gpu,model:args.gpu?'FLUX.2 klein 4B':undefined,message:args.gpu?'기존 영상랩 GPU 대기열에 연결되어 있습니다.':'GPU 작업자를 연결하면 기준 이미지와 감정·상황 이미지를 생성할 수 있습니다.'}});
+  const own=await store.drafts(owner);return json(200,{drafts:own.filter(s=>s.creator?.status==='draft').map(s=>({id:s.id,title:s.title,revision:s.creator!.revision})),sources:[...builtins,...own.filter(s=>s.creator?.status!=='draft'&&!s.creator?.preview)].map(s=>({id:s.id,title:s.title,version:s.narrative?.version??1,custom:!!s.custom})),gpu:{enabled:!!args.gpu,model:creatorImageModel.label,message:args.gpu?'Qwen-Image-2.1 · 정면 기준으로 캐릭터 동일성을 유지하며 생성합니다.':'GPU 작업자를 연결하면 기준 이미지와 감정·상황 이미지를 생성할 수 있습니다.'}});
  }
  if(path==='/api/creator/jobs'&&method==='POST'){
   if(!args.authorJobs||!args.authorQueue)throw new StudioError(503,'제작 작업자가 연결되어 있지 않습니다.');
@@ -48,9 +49,9 @@ export async function creatorApi(args:{path:string;request:Request;owner:string;
  }
  if(path==='/api/creator/chat'){
   const input=partnerRequestSchema.parse(await body(request,250000));await args.chargeGeneration?.();
-  const signal=AbortSignal.any([request.signal,AbortSignal.timeout(105000)]),encoder=new TextEncoder();
+  const signal=AbortSignal.any([request.signal,AbortSignal.timeout(105000)]),services=input.document?creatorMcpServices({owner,document:input.document,activeAuthorJobId:input.activeAuthorJobId,brief:input.state.brief,webSearch:input.webSearch,jobs:args.authorJobs,queue:args.authorQueue,gpu:args.gpu,media,charge:args.chargeGeneration,signal}):undefined,encoder=new TextEncoder();
   const headers=new Headers(json(200,{}).headers);headers.set('Content-Type','text/event-stream; charset=utf-8');
-  const stream=new ReadableStream<Uint8Array>({async start(controller){let open=true;const emit=(event:string,data:unknown)=>{if(open)try{controller.enqueue(encoder.encode('event: '+event+'\ndata: '+JSON.stringify(data)+'\n\n'));}catch{open=false;}};try{const result=await runCreatorPartner(input,signal,emit);emit('creator.completed',result);}catch(e){const message=e instanceof Error&&!/AccessDenied|ValidationException|Credentials|Throttling/.test(e.name)?e.message:'제작 보조 모델이나 검색 연결을 확인해 주세요.';emit('creator.error',{error:message});}finally{if(open)controller.close();}},cancel(){}});
+  const stream=new ReadableStream<Uint8Array>({async start(controller){let open=true;const emit=(event:string,data:unknown)=>{if(open)try{controller.enqueue(encoder.encode('event: '+event+'\ndata: '+JSON.stringify(data)+'\n\n'));}catch{open=false;}};try{const result=await runCreatorPartner(input,signal,emit,services);emit('creator.completed',result);}catch(e){const message=e instanceof Error&&!/AccessDenied|ValidationException|Credentials|Throttling/.test(e.name)?e.message:'제작 보조 모델이나 검색 연결을 확인해 주세요.';emit('creator.error',{error:message});}finally{if(open)controller.close();}},cancel(){}});
   return new Response(stream,{headers});
  }
  if(path==='/api/creator/assist'){
