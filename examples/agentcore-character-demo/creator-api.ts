@@ -1,14 +1,15 @@
+import {assistCreator,authorBriefSchema} from "./creator-assist";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { advanceNarrative, availableNarrativeActions, initialNarrativeState, narrativeStateSchema } from "../../lib/platform/narrative-graph";
 import { presentNarrative } from "../../lib/platform/narrative-presentation";
 import { StudioError } from "../../lib/studio/store";
-import { blankCreator, documentForStory, inspectCreator, pinStory, startDefinition, storyFromDocument, type CreatorDocument } from "./creator";
+import { creatorDocumentSchema, blankCreator, documentForStory, inspectCreator, pinStory, startDefinition, storyFromDocument, type CreatorDocument } from "./creator";
 import { validImage, type CreatorMediaStore } from "./creator-media";
 import type { SceneStore } from "./scene-store";
 import type { Story } from "./stories";
 const draftId=z.string().regex(/^custom-[0-9a-f-]{36}$/u);
-export async function creatorApi(args:{path:string;request:Request;owner:string;store:SceneStore;media?:CreatorMediaStore;builtins:Story[];body:(r:Request,max?:number)=>Promise<unknown>;json:(status:number,data:unknown)=>Response;publicStory:(story:Story)=>unknown}){
+export async function creatorApi(args:{path:string;request:Request;owner:string;store:SceneStore;media?:CreatorMediaStore;builtins:Story[];body:(r:Request,max?:number)=>Promise<unknown>;json:(status:number,data:unknown)=>Response;publicStory:(story:Story)=>unknown;chargeGeneration?:()=>Promise<void>}){
  const {path,request,owner,store,media,builtins,body,json,publicStory}=args,method=request.method;
  const asset=/^\/api\/media\/([0-9a-f-]{36})$/u.exec(path);
  if(asset&&method==='GET'){const result=await media?.get(owner,asset[1]);if(!result)throw new StudioError(404,"이미지를 찾지 못했습니다.");return new Response(Uint8Array.from(result.bytes),{headers:{'Content-Type':result.type,'Cache-Control':'private, max-age=3600','X-Content-Type-Options':'nosniff'}});}
@@ -20,6 +21,12 @@ export async function creatorApi(args:{path:string;request:Request;owner:string;
  const source=/^\/api\/creator\/sources\/([a-z0-9-]{1,64})$/u.exec(path);
  if(source&&method==='GET'){const story=builtins.find(s=>s.id===source[1])??await store.findDraft(owner,source[1]);if(!story)throw new StudioError(404,"작품을 찾지 못했습니다.");return json(200,{document:documentForStory(story),...(story.creator?.status==='draft'?{id:story.id,revision:story.creator.revision}:{sourceId:story.id})});}
  if(method!=='POST')throw new StudioError(405,"지원하지 않는 요청입니다.");
+ if(path==='/api/creator/assist'){
+  const data=z.object({document:creatorDocumentSchema,brief:authorBriefSchema}).strict().parse(await body(request,250000));
+  await args.chargeGeneration?.();
+  const document=await assistCreator(data.document,data.brief,AbortSignal.any([request.signal,AbortSignal.timeout(100000)]));
+  return json(200,{document});
+ }
  if(path==='/api/creator/media'){
   if(!media)throw new StudioError(503,"이미지 저장소가 연결되어 있지 않습니다.");
   const data=z.object({type:z.enum(['image/webp','image/png','image/jpeg']),data:z.string().max(950000)}).strict().parse(await body(request,1000000));

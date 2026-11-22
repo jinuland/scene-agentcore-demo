@@ -7,6 +7,7 @@ const id=z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u);
 export const creatorAssetPath=z.string().regex(/^\/(?:art\/[a-z-]+\.webp|api\/media\/[0-9a-f-]{36})$/u);
 export const creatorDocumentSchema=z.object({
   schema:z.literal("scene-creator/1"),
+  authorBrief:z.object({world:z.string().max(5000),flow:z.string().max(5000),rules:z.string().max(5000),ending:z.string().max(3000)}).strict().optional(),
   profile:z.object({title:z.string().trim().min(1).max(48),tagline:z.string().max(300),genre:z.enum(["판타지","SF","로맨스","BL"]),role:z.string().min(1).max(120),cover:creatorAssetPath,model:dialogueModeSchema,responseLength:z.enum(["scene","short"])}).strict(),
   narrative:narrativeDefinitionSchema,
   starts:z.array(z.object({id,title:z.string().min(1).max(80),sceneId:id,prologue:z.string().min(1).max(2000),greeting:z.string().min(1).max(1000),values:z.record(z.string(),z.number().finite())}).strict()).min(1).max(8),

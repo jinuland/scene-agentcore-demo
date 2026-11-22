@@ -20,6 +20,31 @@ function eligibleChoices(definition: NarrativeDefinition, state: NarrativeState,
     && !(choice.unless?.length && pass(choice.unless)) && (!choice.actionId || allowed.has(choice.actionId))
     && (!choice.transitionId || base.gates.some(gate => gate.id === choice.transitionId && gate.ready)))
     .sort((a, b) => score(b) - score(a));
+  // Sparse or legacy authored scenes still offer distinct, valid ways to continue.
+  // Never unlock a gated action or invent a state change to fill the three slots.
+  if (!state.ending) {
+    for (const action of actions) {
+      if (choices.length >= 3) break;
+      if (scene.choices?.some(c => c.actionId === action.id) || !action.label) continue;
+      const label = view.events.find(e => e.id === action.id)?.label ?? action.label;
+      const text = locale === "en" ? `I'll proceed with: ${tr(label)}.` : locale === "ja" ? `「${tr(label)}」を進めよう。` : `‘${label}’부터 진행할게.`;
+      choices.push({id:"available-"+action.id,text,actionId:action.id,conditions:[]});
+    }
+    const questions = locale === "en" ? [
+      `To work toward “${tr(scene.objective)}”, what can I do here?`,
+      `Before we move, tell me what I should watch for around ${tr(scene.location)}.`
+    ] : locale === "ja" ? [
+      `「${tr(scene.objective)}」のために、ここで私にできることは？`,
+      `動く前に、${tr(scene.location)}で気をつけることを教えて。`
+    ] : [
+      `‘${scene.objective}’을 위해 여기서 내가 맡을 일은 뭐야?`,
+      `움직이기 전에 ${scene.location}에서 주의할 점을 알려줘.`
+    ];
+    for (const [index,text] of questions.entries()) {
+      if (choices.length>=3) break;
+      if (!choices.some(c=>c.text===text)) choices.push({id:"context-"+index,text,conditions:[]});
+    }
+  }
   return { view, tr, base, current, scene, pass, choices };
 }
 /** Exact eligible authored buttons carry explicit intent; free text still uses interpretation. */

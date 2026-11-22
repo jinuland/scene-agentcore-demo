@@ -101,6 +101,7 @@ const web = new lambda.Function(stack, "SceneWeb", {
   reservedConcurrentExecutions: 10,
   logGroup,
   environment: {
+    STUDIO_AWS_AUTH: "iam",
     CHARACTER_DEMO_TABLE: data.tableName,
     CHARACTER_DEMO_MEDIA_BUCKET: creatorMedia.bucketName,
     CHARACTER_DEMO_ACCESS_CODE: secret.secretValue.unsafeUnwrap(),
@@ -111,6 +112,7 @@ const web = new lambda.Function(stack, "SceneWeb", {
   },
 });
 creatorMedia.grantReadWrite(web,"creator/*");
+web.addToRolePolicy(new iam.PolicyStatement({actions:["bedrock:InvokeModel"],resources:[`arn:${stack.partition}:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6`,`arn:${stack.partition}:bedrock:${stack.region}:${stack.account}:inference-profile/global.anthropic.claude-sonnet-4-6`]}));
 data.grant(web, "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:DeleteItem");
 web.addToRolePolicy(new iam.PolicyStatement({
   actions: ["bedrock-agentcore:InvokeAgentRuntime"],

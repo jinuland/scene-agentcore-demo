@@ -208,11 +208,11 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
         return story && localizeStory(withWorldEngine(story), locale);
       };
 
-      const creatorResponse=await creatorApi({path,request,owner,store,media:mediaStore,builtins:stories,body:requestBody,json,publicStory});
+      const creatorResponse=await creatorApi({path,request,owner,store,media:mediaStore,builtins:stories,body:requestBody,json,publicStory,chargeGeneration:chargeTurn});
       if(creatorResponse)return creatorResponse;
       if (request.method === "GET" && path === "/api/library") {
         const [drafts, sessions] = await Promise.all([store.drafts(owner), store.sessions(owner)]);
-        return json(200, { stories: [...stories, ...drafts.filter(s=>s.creator?.status!=="draft")].map(story => publicStory(localizeStory(withWorldEngine(story), locale))), sessions, models, defaultModel, runtime: !!aws.arn, streaming: true, pipelineVersion: "scene-stream/11" });
+        return json(200, { stories: [...stories, ...drafts.filter(s=>s.creator?.status!=="draft")].map(story => publicStory(localizeStory(withWorldEngine(story), locale))), sessions, models, defaultModel, runtime: !!aws.arn, streaming: true, pipelineVersion: "scene-stream/12" });
       }
       if (request.method === "POST" && path === "/api/stories") {
         const story = draftStory(`custom-${randomUUID()}`, draftSchema.parse(await requestBody(request)));
@@ -268,7 +268,7 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
         let serviceFirstContentMs: number | undefined;
         const signal = AbortSignal.any([request.signal, AbortSignal.timeout(110000)]);
         const output = await invokeCloudRuntime(makeContext(story, current, mode, message, locale, responseLength), aws, signal, {
-          episodeScope: episodeRuntimeScope({ id: current.id, projectId: `scene-demo/${story.id}`, releaseId: "demo-stream-v11", ownerHash: owner }),
+          episodeScope: episodeRuntimeScope({ id: current.id, projectId: `scene-demo/${story.id}`, releaseId: "demo-stream-v12", ownerHash: owner }),
           ...(onTextDelta ? { onTextDelta: (text: string) => { serviceFirstContentMs ??= Math.round(performance.now() - started); onTextDelta(text); } } : {}),
         });
         signal.throwIfAborted();
