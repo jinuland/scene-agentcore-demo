@@ -171,7 +171,7 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
       if (request.method === "POST" && request.headers.get("origin") !== origin) throw new StudioError(403, "이 데모 화면에서 다시 시도해 주세요.");
       if (["GET", "HEAD"].includes(request.method) && !path.startsWith("/api/")) {
         const file = path === "/" ? "/index.html" : path;
-        if (!/^\/(?:index\.html|app\.js|creator\.js|creator-partner\.js|creator-progress\.js|creator-apply\.js|creator\.css|i18n\.js|styles\.css|icon\.svg|art\/[a-z-]+\.webp)$/.test(file)) throw new StudioError(404, "페이지를 찾지 못했습니다.");
+        if (!/^\/(?:index\.html|app\.js|creator\.js|creator-partner\.js|creator-progress\.js|creator-apply\.js|creator-image-loader\.js|creator\.css|i18n\.js|styles\.css|icon\.svg|art\/[a-z-]+\.webp)$/.test(file)) throw new StudioError(404, "페이지를 찾지 못했습니다.");
         let data = recentScenes.get(file);
         if (!data) {
           try { data = readFileSync(resolve(web, "." + file)); }

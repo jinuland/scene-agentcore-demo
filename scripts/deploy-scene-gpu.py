@@ -10,6 +10,7 @@ def aws(service,operation,data):
   json.dump(data,f);f.flush();return json.loads(subprocess.check_output(['aws','--profile',a.profile,'--region',a.region,service,operation,'--cli-input-json','file://'+f.name,'--output','json'],text=True))
 root=pathlib.Path(__file__).resolve().parents[1];release='creator-jobs/releases/'+str(uuid.uuid4());key=release+'/worker.py';subprocess.run(['aws','--profile',a.profile,'--region',a.region,'s3','cp',str(root/'examples/agentcore-character-demo/gpu/worker.py'),'s3://'+a.bucket+'/'+key,'--only-show-errors'],check=True)
 subprocess.run(['aws','--profile',a.profile,'--region',a.region,'s3','cp',str(root/'examples/agentcore-character-demo/gpu/model.json'),'s3://'+a.bucket+'/'+release+'/model.json','--only-show-errors'],check=True)
+subprocess.run(['aws','--profile',a.profile,'--region',a.region,'s3','cp',str(root/'examples/agentcore-character-demo/gpu/workflows.py'),'s3://'+a.bucket+'/'+release+'/workflows.py','--only-show-errors'],check=True)
 unit='''[Unit]
 Description=SCENE creator GPU image queue
 After=network-online.target
@@ -27,7 +28,14 @@ RestartSec=5
 WantedBy=multi-user.target
 '''%(a.user,a.region,a.python,a.bucket)
 import base64
-commands=['set -e','if [ -e /opt/scene-creator/jobs/active ]; then echo "A creator render is active; retry after it completes. Existing work was not interrupted."; exit 2; fi',shlex.quote(a.python)+' -c '+shlex.quote('import torch,boto3,PIL; from diffusers import QwenImage21Pipeline; from runtime.drama.gpu_lease import acquire; print("GPU dependencies available")'),'mkdir -p /opt/scene-creator/jobs','chown '+shlex.quote(a.user)+' /opt/scene-creator/jobs','if [ -e /opt/scene-creator/jobs/worker.lock ]; then chown '+shlex.quote(a.user)+' /opt/scene-creator/jobs/worker.lock; fi','aws s3 cp '+shlex.quote('s3://'+a.bucket+'/'+key)+' /opt/scene-creator/worker.py --region '+shlex.quote(a.region)+' --only-show-errors','printf %s '+shlex.quote(base64.b64encode(unit.encode()).decode())+' | base64 -d > /etc/systemd/system/scene-creator-gpu.service','aws s3 cp '+shlex.quote('s3://'+a.bucket+'/'+release+'/model.json')+' /opt/scene-creator/model.json --region '+shlex.quote(a.region)+' --only-show-errors','systemctl daemon-reload','systemctl enable scene-creator-gpu.service','systemctl restart scene-creator-gpu.service','systemctl is-active scene-creator-gpu.service']
+flow_unit=unit.replace('SCENE creator GPU image queue','SCENE creator image workflow dependencies').replace('/opt/scene-creator/worker.py','/opt/scene-creator/workflows.py')
+commands=['set -e',shlex.quote(a.python)+' -c '+shlex.quote('import torch,boto3,PIL; from diffusers import QwenImage21Pipeline; from runtime.drama.gpu_lease import acquire; print("GPU dependencies available")'),'mkdir -p /opt/scene-creator/jobs','chown '+shlex.quote(a.user)+' /opt/scene-creator/jobs','if [ -e /opt/scene-creator/jobs/worker.lock ]; then chown '+shlex.quote(a.user)+' /opt/scene-creator/jobs/worker.lock; fi']
+for name in ['worker.py','model.json','workflows.py']:
+ commands+=['aws s3 cp '+shlex.quote('s3://'+a.bucket+'/'+release+'/'+name)+' '+shlex.quote('/opt/scene-creator/'+name+'.next')+' --region '+shlex.quote(a.region)+' --only-show-errors','mv '+shlex.quote('/opt/scene-creator/'+name+'.next')+' '+shlex.quote('/opt/scene-creator/'+name)]
+commands+=['printf %s '+shlex.quote(base64.b64encode(unit.encode()).decode())+' | base64 -d > /etc/systemd/system/scene-creator-gpu.service','printf %s '+shlex.quote(base64.b64encode(flow_unit.encode()).decode())+' | base64 -d > /etc/systemd/system/scene-creator-workflows.service','systemctl daemon-reload','systemctl enable scene-creator-gpu.service scene-creator-workflows.service','if ! systemctl is-active --quiet scene-creator-gpu.service; then systemctl start scene-creator-gpu.service; fi','systemctl restart scene-creator-workflows.service','systemctl is-active scene-creator-gpu.service scene-creator-workflows.service']
+# Active render subprocesses have already loaded their Python code. Atomic replacement
+# updates the next render without stopping the parent or any active GPU job.
+
 # Dependency check imports Video Lab through its existing runtime directory.
 commands.insert(1,'cd /opt/scene-studio')
 r=aws('ssm','send-command',{'InstanceIds':[a.instance_id],'DocumentName':'AWS-RunShellScript','Parameters':{'commands':commands,'executionTimeout':['120']}});cid=r['Command']['CommandId'];print('SSM command',cid,flush=True)

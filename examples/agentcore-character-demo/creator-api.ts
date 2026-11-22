@@ -1,3 +1,4 @@
+import{publicImageWorkflow}from'./creator-image-workflow';
 import{creatorMcpServices}from'./creator-mcp-services';
 import littlePrinceExample from'./examples/little-prince.json';
 import type{AuthorJobStore,AuthorQueue}from'./creator-job-store';
@@ -25,6 +26,12 @@ export async function creatorApi(args:{path:string;request:Request;owner:string;
  if(method==='GET'&&path==='/api/creator'){
   const own=await store.drafts(owner);return json(200,{drafts:own.filter(s=>s.creator?.status==='draft').map(s=>({id:s.id,title:s.title,revision:s.creator!.revision})),sources:[...builtins,...own.filter(s=>s.creator?.status!=='draft'&&!s.creator?.preview)].map(s=>({id:s.id,title:s.title,version:s.narrative?.version??1,custom:!!s.custom})),gpu:{enabled:!!args.gpu,model:creatorImageModel.label,message:args.gpu?'Qwen-Image-2.1 · 정면 기준으로 캐릭터 동일성을 유지하며 생성합니다.':'GPU 작업자를 연결하면 기준 이미지와 감정·상황 이미지를 생성할 수 있습니다.'}});
  }
+ if(path==='/api/creator/image-workflows'&&method==='POST'){
+  if(!args.gpu?.createWorkflow)throw new StudioError(503,'이미지 작업자가 연결되어 있지 않습니다.');const input=z.object({requestId:z.string().uuid(),document:creatorDocumentSchema}).strict().parse(await body(request,350000));
+  const result=await args.gpu.createWorkflow(owner,input.requestId,input.document,AbortSignal.any([request.signal,AbortSignal.timeout(105000)]),args.chargeGeneration);return json(202,publicImageWorkflow(result));
+ }
+ const imageWorkflow=/^\/api\/creator\/image-workflows\/([0-9a-f-]{36})$/u.exec(path);
+ if(imageWorkflow&&method==='GET'){const result=await args.gpu?.workflow?.(owner,imageWorkflow[1]);if(!result)throw new StudioError(404,'현재 브라우저의 이미지 연결 작업을 찾지 못했습니다.');return json(200,publicImageWorkflow(result));}
  if(path==='/api/creator/jobs'&&method==='POST'){
   if(!args.authorJobs||!args.authorQueue)throw new StudioError(503,'제작 작업자가 연결되어 있지 않습니다.');
   const input=authorJobRequest.parse(await body(request,250000));const job=await createAuthorJob(args.authorJobs,owner,input);await dispatchAuthorJob(args.authorJobs,args.authorQueue,job);return json(202,publicAuthorJob(job,await args.authorJobs.tasks(owner,job.id)));
