@@ -1,3 +1,5 @@
+import{dynamoAuthorJobs,sqsAuthorQueue}from'./creator-job-store';
+import {s3CreatorGpu} from "./creator-gpu";
 import { s3CreatorMedia } from "./creator-media";
 import { join } from "node:path";
 import { dailyTurnQuota, dynamoStore } from "./dynamo-store";
@@ -24,6 +26,9 @@ if (!CHARACTER_DEMO_TABLE || !CHARACTER_DEMO_ACCESS_CODE || !CHARACTER_DEMO_RUNT
   throw new Error("Missing SCENE deployment settings");
 }
 const handle = createSceneService({
+  authorJobs:dynamoAuthorJobs(CHARACTER_DEMO_TABLE),
+  authorQueue:process.env.CHARACTER_DEMO_AUTHOR_QUEUE?sqsAuthorQueue(process.env.CHARACTER_DEMO_AUTHOR_QUEUE):undefined,
+  gpuStore:process.env.CHARACTER_DEMO_GPU_ENABLED==='true'&&process.env.CHARACTER_DEMO_MEDIA_BUCKET?s3CreatorGpu(process.env.CHARACTER_DEMO_MEDIA_BUCKET):undefined,
   store: dynamoStore(CHARACTER_DEMO_TABLE),
   web: join(__dirname, "web"),
   aws: { arn: CHARACTER_DEMO_RUNTIME_ARN, region: AWS_REGION },

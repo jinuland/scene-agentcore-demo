@@ -23,7 +23,7 @@ const rememberedModel = () => {
 const rememberedLength = () => {
   try { return localStorage.getItem("scene.responseLength") === "short" ? "short" : "scene"; } catch { return "scene"; }
 };
-async function api(path, data, onDelta) {
+async function api(path, data, onDelta, onEvent) {
   let init;
   if (data !== undefined) {
     const body = JSON.stringify(data);
@@ -52,7 +52,10 @@ async function api(path, data, onDelta) {
         const raw = lines.filter(line=>line.startsWith("data:")).map(line=>line.slice(5).trimStart()).join("\n");
         if (!raw) continue;
         const payload = JSON.parse(raw);
-        if (event === "dialogue.delta") onDelta(payload.text);
+        if (event === "dialogue.delta" || event === "creator.delta") onDelta(payload.text);
+        if (event === "creator.tool") onEvent?.(event,payload);
+        if (event === "creator.completed") committed = payload;
+        if (event === "creator.error") throw new Error(t(payload.error));
         if (event === "turn.error") throw new Error(t(payload.error));
         if (event === "state.committed") committed = payload.episode;
       }

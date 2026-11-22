@@ -1,3 +1,5 @@
+import type{AuthorJobStore,AuthorQueue}from'./creator-job-store';
+import type {CreatorGpuStore} from "./creator-gpu";
 import { creatorApi } from "./creator-api";
 import { storyFromDocument, pinStory } from "./creator";
 import { selectTurnMedia, type CreatorMediaStore } from "./creator-media";
@@ -123,6 +125,8 @@ type ServiceOptions = {
   accessCode?: string;
   publicAccess?: boolean;
   chargeTurn?: () => Promise<void>;
+  authorJobs?:AuthorJobStore; authorQueue?:AuthorQueue;
+  gpuStore?: CreatorGpuStore;
   mediaStore?: CreatorMediaStore;
 };
 
@@ -144,7 +148,7 @@ async function requestBody(request: Request, maxBytes = 8192) {
   catch { throw new StudioError(400, "요청을 읽을 수 없습니다."); }
 }
 
-export function createSceneService({ store, web, aws, accessCode, publicAccess = false, chargeTurn, mediaStore }: ServiceOptions) {
+export function createSceneService({ store, web, aws, accessCode, publicAccess = false, chargeTurn, mediaStore, gpuStore, authorJobs, authorQueue }: ServiceOptions) {
   const models = enabledDialogueModes();
   const defaultModel = models.find(model => model.id === "sonnet55")?.id ?? models[0]?.id;
   const recentScenes = new Map<string, Buffer>();
@@ -167,7 +171,7 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
       if (request.method === "POST" && request.headers.get("origin") !== origin) throw new StudioError(403, "이 데모 화면에서 다시 시도해 주세요.");
       if (["GET", "HEAD"].includes(request.method) && !path.startsWith("/api/")) {
         const file = path === "/" ? "/index.html" : path;
-        if (!/^\/(?:index\.html|app\.js|creator\.js|creator\.css|i18n\.js|styles\.css|icon\.svg|art\/[a-z-]+\.webp)$/.test(file)) throw new StudioError(404, "페이지를 찾지 못했습니다.");
+        if (!/^\/(?:index\.html|app\.js|creator\.js|creator-partner\.js|creator-progress\.js|creator\.css|i18n\.js|styles\.css|icon\.svg|art\/[a-z-]+\.webp)$/.test(file)) throw new StudioError(404, "페이지를 찾지 못했습니다.");
         let data = recentScenes.get(file);
         if (!data) {
           try { data = readFileSync(resolve(web, "." + file)); }
@@ -208,11 +212,11 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
         return story && localizeStory(withWorldEngine(story), locale);
       };
 
-      const creatorResponse=await creatorApi({path,request,owner,store,media:mediaStore,builtins:stories,body:requestBody,json,publicStory,chargeGeneration:chargeTurn});
+      const creatorResponse=await creatorApi({path,request,owner,store,media:mediaStore,gpu:gpuStore,authorJobs,authorQueue,builtins:stories,body:requestBody,json,publicStory,chargeGeneration:chargeTurn});
       if(creatorResponse)return creatorResponse;
       if (request.method === "GET" && path === "/api/library") {
         const [drafts, sessions] = await Promise.all([store.drafts(owner), store.sessions(owner)]);
-        return json(200, { stories: [...stories, ...drafts.filter(s=>s.creator?.status!=="draft")].map(story => publicStory(localizeStory(withWorldEngine(story), locale))), sessions, models, defaultModel, runtime: !!aws.arn, streaming: true, pipelineVersion: "scene-stream/12" });
+        return json(200, { stories: [...stories, ...drafts.filter(s=>s.creator?.status!=="draft")].map(story => publicStory(localizeStory(withWorldEngine(story), locale))), sessions, models, defaultModel, runtime: !!aws.arn, streaming: true, pipelineVersion: "scene-stream/13" });
       }
       if (request.method === "POST" && path === "/api/stories") {
         const story = draftStory(`custom-${randomUUID()}`, draftSchema.parse(await requestBody(request)));
@@ -268,7 +272,7 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
         let serviceFirstContentMs: number | undefined;
         const signal = AbortSignal.any([request.signal, AbortSignal.timeout(110000)]);
         const output = await invokeCloudRuntime(makeContext(story, current, mode, message, locale, responseLength), aws, signal, {
-          episodeScope: episodeRuntimeScope({ id: current.id, projectId: `scene-demo/${story.id}`, releaseId: "demo-stream-v12", ownerHash: owner }),
+          episodeScope: episodeRuntimeScope({ id: current.id, projectId: `scene-demo/${story.id}`, releaseId: "demo-stream-v13", ownerHash: owner }),
           ...(onTextDelta ? { onTextDelta: (text: string) => { serviceFirstContentMs ??= Math.round(performance.now() - started); onTextDelta(text); } } : {}),
         });
         signal.throwIfAborted();

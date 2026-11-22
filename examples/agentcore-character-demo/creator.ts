@@ -11,7 +11,9 @@ export const creatorDocumentSchema=z.object({
   profile:z.object({title:z.string().trim().min(1).max(48),tagline:z.string().max(300),genre:z.enum(["판타지","SF","로맨스","BL"]),role:z.string().min(1).max(120),cover:creatorAssetPath,model:dialogueModeSchema,responseLength:z.enum(["scene","short"])}).strict(),
   narrative:narrativeDefinitionSchema,
   starts:z.array(z.object({id,title:z.string().min(1).max(80),sceneId:id,prologue:z.string().min(1).max(2000),greeting:z.string().min(1).max(1000),values:z.record(z.string(),z.number().finite())}).strict()).min(1).max(8),
-  assets:z.array(z.object({id,file:creatorAssetPath,label:z.string().min(1).max(150)}).strict()).max(40),
+  assets:z.array(z.object({id,file:creatorAssetPath,label:z.string().min(1).max(150),characterId:id.optional(),kind:z.enum(['reference','expression','upload']).optional(),view:z.string().max(30).optional(),emotion:z.string().max(30).optional(),description:z.string().max(600).optional(),seed:z.number().int().optional(),model:z.string().max(200).optional(),referenceFile:creatorAssetPath.optional()}).strict()).max(40),
+  imageStyle:z.enum(['anime','illustration','3d','photo']).optional(),
+  imageJobs:z.array(z.object({id:z.string().uuid(),characterId:id,kind:z.enum(['character','expression']),targetMediaId:id.optional(),status:z.enum(['queued','running','completed','failed']),message:z.string().max(600).optional(),progress:z.number().min(0).max(1).optional()}).strict()).max(20).optional(),
 }).strict();
 export type CreatorDocument=z.infer<typeof creatorDocumentSchema>;
 export function documentForStory(story:Story):CreatorDocument {

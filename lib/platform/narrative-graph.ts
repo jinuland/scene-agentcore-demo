@@ -18,9 +18,9 @@ export const narrativeDefinitionSchema = z.object({
   counters: z.array(z.object({ id, label: z.string().max(80), initial: z.number().finite(), min: z.number().finite(), max: z.number().finite(), unit: z.string().max(12), visible: z.boolean(), values: z.array(z.string().max(80)).min(2).max(20).optional() }).strict()).max(16),
   facts: z.array(z.object({ id, text: z.string().max(1600), conditions: z.array(condition).max(8), keywords: z.array(z.string().min(1).max(60)).max(12).optional() }).strict()).max(40),
   scenes: z.array(z.object({ id, speaker: id.optional(), title: z.string().max(120), location: z.string().max(120), opening: z.string().max(1800), objective: z.string().max(300), minTurns: z.number().int().min(0).max(30), suggestions: z.array(z.string().max(150)).max(3), choices: z.array(z.object({ id, text: z.string().max(180), conditions: z.array(condition).max(8), unless: z.array(condition).max(8).optional(), actionId: id.optional(), transitionId: id.optional(), priority: z.number().optional() }).strict()).max(12).optional(), mood: z.enum(["neutral", "focused", "concerned", "relieved"]) }).strict()).min(1).max(24),
-  events: z.array(z.object({ id, when: z.string().max(500), scenes: z.array(id).max(24), once: z.boolean(), opensTransition: id.optional(), opensTransitions: z.array(id).max(24).optional(), label: z.string().max(100).optional(), result: z.string().max(500).optional(), conditions: z.array(condition).max(8).optional(), effects: z.array(z.object({ counter: id, delta: z.number().finite() }).strict()).max(8), minutes: z.number().int().min(0).max(1440) }).strict()).max(32),
-  transitions: z.array(z.object({ id, from: id, to: id, label: z.string().max(150), when: z.string().max(500), conditions: z.array(condition).max(8), minutes: z.number().int().min(0).max(1440).optional() }).strict()).max(40),
-  endings: z.array(z.object({ id, title: z.string().max(120), text: z.string().max(1200), scenes: z.array(id).max(24), conditions: z.array(condition).min(1).max(8), priority: z.number().int().min(0).max(100) }).strict()).min(1).max(10),
+  events: z.array(z.object({ id, alsoApplies: z.array(id).max(4).optional(), when: z.string().max(500), scenes: z.array(id).max(24), once: z.boolean(), opensTransition: id.optional(), opensTransitions: z.array(id).max(24).optional(), label: z.string().max(100).optional(), result: z.string().max(500).optional(), conditions: z.array(condition).max(8).optional(), effects: z.array(z.object({ counter: id, delta: z.number().finite() }).strict()).max(8), minutes: z.number().int().min(0).max(1440) }).strict()).max(32),
+  transitions: z.array(z.object({ id, from: id, to: id, label: z.string().max(150), when: z.string().max(500), conditions: z.array(condition).max(8), minutes: z.number().int().min(0).max(1440).optional(), requiresEvents: z.array(id).max(24).optional() }).strict()).max(40),
+  endings: z.array(z.object({ id, title: z.string().max(120), text: z.string().max(1200), scenes: z.array(id).max(24), conditions: z.array(condition).min(1).max(8), priority: z.number().int().min(0).max(100), requiresEvents: z.array(id).max(24).optional() }).strict()).min(1).max(10),
 }).strict();
 export type NarrativeDefinition = z.infer<typeof narrativeDefinitionSchema>;
 const eventRecord = z.object({ id, turn: z.number().int().positive(), quote: z.string().min(2).max(300) }).strict();
@@ -96,6 +96,8 @@ export function compileNarrative(definition: NarrativeDefinition) {
       graph.addDirectedEdge("event/" + event.id, "counter/" + effect.counter, { kind: "CHANGES", delta: effect.delta });
     }
   }
+  const checkLinked=(eventId:string,path:Set<string>)=>{if(path.has(eventId))throw Error("Cyclic linked actions");const event=definition.events.find(e=>e.id===eventId);if(!event)throw Error("Unknown linked action");for(const linked of event.alsoApplies??[]){const target=definition.events.find(e=>e.id===linked);if(!target||event.scenes.some(s=>!target.scenes.includes(s)))throw Error("Invalid linked action scope");graph.addDirectedEdge("event/"+event.id,"event/"+linked,{kind:"APPLIES_ACTION"});checkLinked(linked,new Set([...path,eventId]));}};
+  for(const event of definition.events)checkLinked(event.id,new Set());
   for (const transition of definition.transitions) {
     if (!graph.hasNode("scene/" + transition.from) || !graph.hasNode("scene/" + transition.to)) throw Error("Unknown transition scene");
     const key = "transition/" + transition.id;
@@ -132,6 +134,10 @@ export function compileNarrative(definition: NarrativeDefinition) {
       graph.addDirectedEdge("scene/" + scene, key, { kind: "CAN_END" });
     }
     gates(key, ending.conditions);
+  }
+  for (const [kind, items] of [["transition", definition.transitions], ["ending", definition.endings]] as const) for (const item of items) for (const event of item.requiresEvents ?? []) {
+    if (!definition.events.some(e => e.id === event)) throw Error("Unknown required event");
+    graph.addDirectedEdge(kind + "/" + item.id, "event/" + event, { kind: "REQUIRES_EVENT" });
   }
   for (const scene of definition.scenes) for (const choice of scene.choices ?? []) {
     const key = `scene/${scene.id}/choice/${choice.id}`;
@@ -178,11 +184,12 @@ export function narrativeGraph(definition: NarrativeDefinition, rawState: Narrat
   if (state.events.some(event => !definition.events.some(candidate => candidate.id === event.id)) || state.transitions.some(event => !definition.transitions.some(candidate => candidate.id === event.id && candidate.from === event.from && candidate.to === event.to))) throw Error("Unknown narrative history");
   const values = { ...state.counters, "total-turns": state.turns, "scene-turns": state.sceneTurns, "elapsed-minutes": state.elapsedMinutes };
   for (const [key, value] of Object.entries(values)) graph.setNodeAttribute("counter/" + key, "value", value);
+  for (const event of definition.events) graph.setNodeAttribute("event/" + event.id, "completed", state.events.some(e => e.id === event.id));
   graph.setNodeAttribute("scene/" + state.scene, "active", true);
   return graph;
 }
 function gatePasses(graph: MultiDirectedGraph, key: string) {
-  return graph.outNeighbors(key).filter(neighbor => graph.getNodeAttribute(neighbor, "kind") === "Gate").every(neighbor => {
+  return graph.outEdges(key).filter(edge => graph.getEdgeAttribute(edge, "kind") === "REQUIRES_EVENT").every(edge => graph.getNodeAttribute(graph.target(edge), "completed")) && graph.outNeighbors(key).filter(neighbor => graph.getNodeAttribute(neighbor, "kind") === "Gate").every(neighbor => {
     const gate = graph.getNodeAttributes(neighbor);
     const value = graph.getNodeAttribute("counter/" + gate.counter, "value");
     return gate.op === "gte" ? value >= gate.value : gate.op === "lte" ? value <= gate.value : value === gate.value;
@@ -199,7 +206,8 @@ export function advanceNarrative(definition: NarrativeDefinition, current: Narra
   const allowed = availableNarrativeActions(definition, current);
   const applied: string[] = [], seen = new Set<string>();
   next.turns++; next.sceneTurns++; next.elapsedMinutes += definition.minutesPerTurn;
-  for (const candidate of plan.events) {
+  const candidates=[...plan.events];
+  for (const candidate of candidates) {
     const event = allowed.find(event => event.id === candidate.id);
     if (!event || seen.has(candidate.id) || !message.includes(candidate.quote) || !gatePasses(narrativeGraph(definition, next), "event/" + event.id)) continue;
     seen.add(candidate.id);
@@ -210,6 +218,7 @@ export function advanceNarrative(definition: NarrativeDefinition, current: Narra
     next.events.push({ id: event.id, turn: next.turns, quote: candidate.quote });
     next.elapsedMinutes += event.minutes;
     applied.push(event.id);
+    for(const linked of event.alsoApplies??[])if(!seen.has(linked))candidates.push({id:linked,quote:candidate.quote});
   }
   let graph = narrativeGraph(definition, next);
   const scene = definition.scenes.find(scene => scene.id === next.scene)!;

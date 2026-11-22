@@ -1,3 +1,8 @@
+import littlePrinceExample from'./examples/little-prince.json';
+import type{AuthorJobStore,AuthorQueue}from'./creator-job-store';
+import{authorJobRequest,createAuthorJob,dispatchAuthorJob,publicAuthorJob,retryAuthorTask}from'./creator-jobs';
+import {gpuRequestSchema,queueCreatorImage,publicGpuJob,type CreatorGpuStore} from "./creator-gpu";
+import {partnerRequestSchema,runCreatorPartner} from "./creator-partner";
 import {assistCreator,authorBriefSchema} from "./creator-assist";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -9,18 +14,45 @@ import { validImage, type CreatorMediaStore } from "./creator-media";
 import type { SceneStore } from "./scene-store";
 import type { Story } from "./stories";
 const draftId=z.string().regex(/^custom-[0-9a-f-]{36}$/u);
-export async function creatorApi(args:{path:string;request:Request;owner:string;store:SceneStore;media?:CreatorMediaStore;builtins:Story[];body:(r:Request,max?:number)=>Promise<unknown>;json:(status:number,data:unknown)=>Response;publicStory:(story:Story)=>unknown;chargeGeneration?:()=>Promise<void>}){
+export async function creatorApi(args:{path:string;request:Request;owner:string;store:SceneStore;media?:CreatorMediaStore;gpu?:CreatorGpuStore;authorJobs?:AuthorJobStore;authorQueue?:AuthorQueue;builtins:Story[];body:(r:Request,max?:number)=>Promise<unknown>;json:(status:number,data:unknown)=>Response;publicStory:(story:Story)=>unknown;chargeGeneration?:()=>Promise<void>}){
  const {path,request,owner,store,media,builtins,body,json,publicStory}=args,method=request.method;
  const asset=/^\/api\/media\/([0-9a-f-]{36})$/u.exec(path);
  if(asset&&method==='GET'){const result=await media?.get(owner,asset[1]);if(!result)throw new StudioError(404,"이미지를 찾지 못했습니다.");return new Response(Uint8Array.from(result.bytes),{headers:{'Content-Type':result.type,'Cache-Control':'private, max-age=3600','X-Content-Type-Options':'nosniff'}});}
  if(!path.startsWith('/api/creator'))return;
+ if(method==='GET'&&path==='/api/creator/examples/little-prince')return json(200,{document:creatorDocumentSchema.parse(littlePrinceExample)});
  if(method==='GET'&&path==='/api/creator/template')return json(200,{document:blankCreator()});
  if(method==='GET'&&path==='/api/creator'){
-  const own=await store.drafts(owner);return json(200,{drafts:own.filter(s=>s.creator?.status==='draft').map(s=>({id:s.id,title:s.title,revision:s.creator!.revision})),sources:[...builtins,...own.filter(s=>s.creator?.status!=='draft'&&!s.creator?.preview)].map(s=>({id:s.id,title:s.title,version:s.narrative?.version??1,custom:!!s.custom})),gpu:{enabled:false,message:'GPU 생성은 연결 예정입니다. 현재는 이미지 업로드와 기존 미디어 선택을 사용합니다.'}});
+  const own=await store.drafts(owner);return json(200,{drafts:own.filter(s=>s.creator?.status==='draft').map(s=>({id:s.id,title:s.title,revision:s.creator!.revision})),sources:[...builtins,...own.filter(s=>s.creator?.status!=='draft'&&!s.creator?.preview)].map(s=>({id:s.id,title:s.title,version:s.narrative?.version??1,custom:!!s.custom})),gpu:{enabled:!!args.gpu,model:args.gpu?'FLUX.2 klein 4B':undefined,message:args.gpu?'기존 영상랩 GPU 대기열에 연결되어 있습니다.':'GPU 작업자를 연결하면 기준 이미지와 감정·상황 이미지를 생성할 수 있습니다.'}});
+ }
+ if(path==='/api/creator/jobs'&&method==='POST'){
+  if(!args.authorJobs||!args.authorQueue)throw new StudioError(503,'제작 작업자가 연결되어 있지 않습니다.');
+  const input=authorJobRequest.parse(await body(request,250000));const job=await createAuthorJob(args.authorJobs,owner,input);await dispatchAuthorJob(args.authorJobs,args.authorQueue,job);return json(202,publicAuthorJob(job,await args.authorJobs.tasks(owner,job.id)));
+ }
+ const authorJob=/^\/api\/creator\/jobs\/([0-9a-f-]{36})(?:\/retry)?$/u.exec(path);
+ if(authorJob){
+  if(!args.authorJobs||!args.authorQueue)throw new StudioError(503,'제작 작업자가 연결되어 있지 않습니다.');const job=await args.authorJobs.getJob(owner,authorJob[1]);if(!job)throw new StudioError(404,'제작 작업을 찾지 못했습니다.');
+  if(method==='POST'&&path.endsWith('/retry')){const data=z.object({taskId:z.string().max(70)}).strict().parse(await body(request));await retryAuthorTask(args.authorJobs,args.authorQueue,job,data.taskId);}
+  else if(method==='GET'&&!path.endsWith('/retry'))await dispatchAuthorJob(args.authorJobs,args.authorQueue,job);
+  else throw new StudioError(405,'지원하지 않는 요청입니다.');
+  return json(200,publicAuthorJob(job,await args.authorJobs.tasks(owner,job.id)));
  }
  const source=/^\/api\/creator\/sources\/([a-z0-9-]{1,64})$/u.exec(path);
  if(source&&method==='GET'){const story=builtins.find(s=>s.id===source[1])??await store.findDraft(owner,source[1]);if(!story)throw new StudioError(404,"작품을 찾지 못했습니다.");return json(200,{document:documentForStory(story),...(story.creator?.status==='draft'?{id:story.id,revision:story.creator.revision}:{sourceId:story.id})});}
+ const gpuJob=/^\/api\/creator\/gpu\/([0-9a-f-]{36})$/u.exec(path);
+ if(gpuJob&&method==='GET'){const job=await args.gpu?.get(owner,gpuJob[1]);if(!job)throw new StudioError(404,'생성 작업을 찾지 못했습니다.');return json(200,publicGpuJob(job));}
  if(method!=='POST')throw new StudioError(405,"지원하지 않는 요청입니다.");
+ if(path==='/api/creator/gpu'){
+  if(!args.gpu||!media)throw new StudioError(503,'GPU 작업자가 연결되어 있지 않습니다.');const input=gpuRequestSchema.parse(await body(request,12000));
+  const existing=await args.gpu.get(owner,input.requestId);if(!existing)await args.chargeGeneration?.();
+  const job=await queueCreatorImage(args.gpu,media,owner,input,AbortSignal.any([request.signal,AbortSignal.timeout(45000)]));return json(202,publicGpuJob(job));
+ }
+ if(path==='/api/creator/chat'){
+  const input=partnerRequestSchema.parse(await body(request,250000));await args.chargeGeneration?.();
+  const signal=AbortSignal.any([request.signal,AbortSignal.timeout(105000)]),encoder=new TextEncoder();
+  const headers=new Headers(json(200,{}).headers);headers.set('Content-Type','text/event-stream; charset=utf-8');
+  const stream=new ReadableStream<Uint8Array>({async start(controller){let open=true;const emit=(event:string,data:unknown)=>{if(open)try{controller.enqueue(encoder.encode('event: '+event+'\ndata: '+JSON.stringify(data)+'\n\n'));}catch{open=false;}};try{const result=await runCreatorPartner(input,signal,emit);emit('creator.completed',result);}catch(e){const message=e instanceof Error&&!/AccessDenied|ValidationException|Credentials|Throttling/.test(e.name)?e.message:'제작 보조 모델이나 검색 연결을 확인해 주세요.';emit('creator.error',{error:message});}finally{if(open)controller.close();}},cancel(){}});
+  return new Response(stream,{headers});
+ }
  if(path==='/api/creator/assist'){
   const data=z.object({document:creatorDocumentSchema,brief:authorBriefSchema}).strict().parse(await body(request,250000));
   await args.chargeGeneration?.();

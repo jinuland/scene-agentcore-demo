@@ -17,6 +17,8 @@ const account = process.env.CDK_DEFAULT_ACCOUNT;
 const region = process.env.SCENE_AWS_REGION ?? "ap-northeast-2";
 const modelId = "global.anthropic.claude-sonnet-4-6";
 const mantleRegion = mantleRegionSchema.parse("us-east-1");
+const gpuRoleName=app.node.tryGetContext("sceneGpuRole") as string|undefined;
+const gpuEnabled=!!gpuRoleName&&app.node.tryGetContext("sceneGpuEnabled")==="true";
 const access = app.node.tryGetContext("sceneAccess") ?? "public";
 if (!account || !/^\d{12}$/.test(account)) throw new Error("Configure AWS credentials and run CDK with the target account's profile.");
 if (access !== "public" && access !== "code") throw new Error("sceneAccess must be public or code.");
@@ -102,6 +104,7 @@ const web = new lambda.Function(stack, "SceneWeb", {
   logGroup,
   environment: {
     STUDIO_AWS_AUTH: "iam",
+    CHARACTER_DEMO_GPU_ENABLED:String(gpuEnabled),
     CHARACTER_DEMO_TABLE: data.tableName,
     CHARACTER_DEMO_MEDIA_BUCKET: creatorMedia.bucketName,
     CHARACTER_DEMO_ACCESS_CODE: secret.secretValue.unsafeUnwrap(),
@@ -112,12 +115,27 @@ const web = new lambda.Function(stack, "SceneWeb", {
   },
 });
 creatorMedia.grantReadWrite(web,"creator/*");
+creatorMedia.grantReadWrite(web,"creator-jobs/*");
+if(gpuRoleName){const gpuRole=iam.Role.fromRoleName(stack,"ExistingCreatorGpuRole",gpuRoleName);creatorMedia.grantReadWrite(gpuRole,"creator/*");creatorMedia.grantReadWrite(gpuRole,"creator-jobs/*");}
 web.addToRolePolicy(new iam.PolicyStatement({actions:["bedrock:InvokeModel"],resources:[`arn:${stack.partition}:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6`,`arn:${stack.partition}:bedrock:${stack.region}:${stack.account}:inference-profile/global.anthropic.claude-sonnet-4-6`]}));
+web.addToRolePolicy(new iam.PolicyStatement({actions:["bedrock:InvokeModel","bedrock:InvokeModelWithResponseStream"],resources:[`arn:${stack.partition}:bedrock:*::foundation-model/anthropic.claude-opus-5-5`,`arn:${stack.partition}:bedrock:${stack.region}:${stack.account}:inference-profile/global.anthropic.claude-opus-5-5`,`arn:${stack.partition}:bedrock:*::foundation-model/amazon.nova-2-lite-v1:0`,`arn:${stack.partition}:bedrock:us-east-1:${stack.account}:inference-profile/us.amazon.nova-2-lite-v1:0`]}));
+web.addToRolePolicy(new iam.PolicyStatement({actions:["bedrock:InvokeTool"],resources:[`arn:${stack.partition}:bedrock::${stack.account}:system-tool/amazon.nova_grounding`]}));
 data.grant(web, "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:DeleteItem");
 web.addToRolePolicy(new iam.PolicyStatement({
   actions: ["bedrock-agentcore:InvokeAgentRuntime"],
   resources: [runtime.agentRuntimeArn, `${runtime.agentRuntimeArn}/runtime-endpoint/DEFAULT`],
 }));
+const authorFailures=new sqs.Queue(stack,'AuthorFailures',{retentionPeriod:cdk.Duration.days(7)});
+const authorQueue=new sqs.Queue(stack,'AuthorQueue',{visibilityTimeout:cdk.Duration.minutes(5),deadLetterQueue:{queue:authorFailures,maxReceiveCount:3}});
+const authorWorker=new lambda.Function(stack,'AuthorWorker',{runtime:lambda.Runtime.NODEJS_24_X,code:lambda.Code.fromAsset('.studio/scene-demo-build/author'),handler:'index.handler',timeout:cdk.Duration.minutes(4),memorySize:1024,reservedConcurrentExecutions:3,environment:{STUDIO_AWS_AUTH:'iam',CHARACTER_DEMO_TABLE:data.tableName,CHARACTER_DEMO_AUTHOR_QUEUE:authorQueue.queueUrl},logGroup:new logs.LogGroup(stack,'AuthorLogs',{retention:logs.RetentionDays.ONE_WEEK,removalPolicy:cdk.RemovalPolicy.DESTROY})});
+authorWorker.addEventSource(new sources.SqsEventSource(authorQueue,{batchSize:1}));
+authorQueue.grantSendMessages(authorWorker);authorQueue.grantSendMessages(web);
+web.addEnvironment('CHARACTER_DEMO_AUTHOR_QUEUE',authorQueue.queueUrl);
+data.grant(authorWorker,'dynamodb:GetItem','dynamodb:PutItem','dynamodb:Query','dynamodb:UpdateItem');
+for(const model of ['anthropic.claude-opus-5-5','anthropic.claude-sonnet-5-5','amazon.nova-2-lite-v1:0'])authorWorker.addToRolePolicy(new iam.PolicyStatement({actions:['bedrock:InvokeModel','bedrock:InvokeModelWithResponseStream'],resources:[`arn:${stack.partition}:bedrock:*::foundation-model/${model}`,`arn:${stack.partition}:bedrock:${model.startsWith('amazon.')?'us-east-1':stack.region}:${stack.account}:inference-profile/${model.startsWith('amazon.')?'us':'global'}.${model}`]}));
+authorWorker.addToRolePolicy(new iam.PolicyStatement({actions:['bedrock:InvokeTool'],resources:[`arn:${stack.partition}:bedrock::${stack.account}:system-tool/amazon.nova_grounding`]}));
+new cdk.CfnOutput(stack,'AuthorQueueUrl',{value:authorQueue.queueUrl});
+new cdk.CfnOutput(stack,'AuthorWorkerName',{value:authorWorker.functionName});
 const url = web.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.AWS_IAM, invokeMode: lambda.InvokeMode.RESPONSE_STREAM });
 // The origin request uses the Lambda hostname for SigV4. Save the actual
 // viewer hostname in a header CloudFront overwrites before forwarding.
