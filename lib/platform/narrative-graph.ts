@@ -12,10 +12,11 @@ export const narrativeDefinitionSchema = z.object({
   translations: z.object({ en: z.record(z.string(), z.string()).optional(), ja: z.record(z.string(), z.string()).optional() }).strict().optional(),
   statusFields: z.array(z.object({ id, label: z.string().max(80), cases: z.array(z.object({ text: z.string().max(300), conditions: z.array(condition).max(8) }).strict()).min(1).max(8) }).strict()).max(12).optional(),
   plotThreads: z.array(z.object({ id, title: z.string().max(120), description: z.string().max(500), activeWhen: z.array(condition).max(8), resolveWhen: z.array(condition).min(1).max(8), resolution: z.string().max(300).optional() }).strict()).max(12).optional(),
+  milestones: z.array(z.object({ id, title: z.string().max(120), text: z.string().max(1200), conditions: z.array(condition).min(1).max(8) }).strict()).max(16).optional(),
   counters: z.array(z.object({ id, label: z.string().max(80), initial: z.number().finite(), min: z.number().finite(), max: z.number().finite(), unit: z.string().max(12), visible: z.boolean() }).strict()).max(16),
   facts: z.array(z.object({ id, text: z.string().max(1600), conditions: z.array(condition).max(8) }).strict()).max(40),
   scenes: z.array(z.object({ id, title: z.string().max(120), location: z.string().max(120), opening: z.string().max(1800), objective: z.string().max(300), minTurns: z.number().int().min(0).max(30), suggestions: z.array(z.string().max(150)).max(3), choices: z.array(z.object({ id, text: z.string().max(180), conditions: z.array(condition).max(8), unless: z.array(condition).max(8).optional(), actionId: id.optional(), transitionId: id.optional(), priority: z.number().optional() }).strict()).max(12).optional(), mood: z.enum(["neutral", "focused", "concerned", "relieved"]) }).strict()).min(1).max(24),
-  events: z.array(z.object({ id, when: z.string().max(500), scenes: z.array(id).max(24), once: z.boolean(), opensTransition: id.optional(), label: z.string().max(100).optional(), result: z.string().max(500).optional(), conditions: z.array(condition).max(8).optional(), effects: z.array(z.object({ counter: id, delta: z.number().finite() }).strict()).max(8), minutes: z.number().int().min(0).max(1440) }).strict()).max(32),
+  events: z.array(z.object({ id, when: z.string().max(500), scenes: z.array(id).max(24), once: z.boolean(), opensTransition: id.optional(), opensTransitions: z.array(id).max(24).optional(), label: z.string().max(100).optional(), result: z.string().max(500).optional(), conditions: z.array(condition).max(8).optional(), effects: z.array(z.object({ counter: id, delta: z.number().finite() }).strict()).max(8), minutes: z.number().int().min(0).max(1440) }).strict()).max(32),
   transitions: z.array(z.object({ id, from: id, to: id, label: z.string().max(150), when: z.string().max(500), conditions: z.array(condition).max(8), minutes: z.number().int().min(0).max(1440).optional() }).strict()).max(40),
   endings: z.array(z.object({ id, title: z.string().max(120), text: z.string().max(1200), scenes: z.array(id).max(24), conditions: z.array(condition).min(1).max(8), priority: z.number().int().min(0).max(100) }).strict()).min(1).max(10),
 }).strict();
@@ -94,10 +95,15 @@ export function compileNarrative(definition: NarrativeDefinition) {
     gates(key, transition.conditions);
   }
   for (const event of definition.events) {
-    if (!event.opensTransition) continue;
-    const transition = definition.transitions.find(item => item.id === event.opensTransition);
-    if (!transition || !event.scenes.includes(transition.from)) throw Error("Invalid authored action transition");
-    graph.addDirectedEdge("event/" + event.id, "transition/" + transition.id, { kind: "REQUESTS_TRANSITION" });
+    for (const target of new Set([...(event.opensTransition ? [event.opensTransition] : []), ...(event.opensTransitions ?? [])])) {
+      const transition = definition.transitions.find(item => item.id === target);
+      if (!transition || !event.scenes.includes(transition.from)) throw Error("Invalid authored action transition");
+      graph.addDirectedEdge("event/" + event.id, "transition/" + transition.id, { kind: "REQUESTS_TRANSITION" });
+    }
+  }
+  for (const milestone of definition.milestones ?? []) {
+    const key = "milestone/" + milestone.id;
+    node(key, "Milestone", milestone); gates(key, milestone.conditions);
   }
   for (const ending of definition.endings) {
     const key = "ending/" + ending.id;
@@ -192,8 +198,8 @@ export function advanceNarrative(definition: NarrativeDefinition, current: Narra
   // exact input evidence still apply; ambiguous links never choose a destination.
   const linked = next.events.filter(event => event.turn === next.turns).flatMap(record => {
     const action = definition.events.find(event => event.id === record.id)!;
-    const transition = definition.transitions.find(item => item.id === action.opensTransition && item.from === next.scene);
-    return transition ? [{ id: transition.id, quote: record.quote }] : [];
+    const targets = new Set([...(action.opensTransition ? [action.opensTransition] : []), ...(action.opensTransitions ?? [])]);
+    return definition.transitions.filter(item => targets.has(item.id) && item.from === next.scene).map(item => ({ id: item.id, quote: record.quote }));
   });
   const linkedIds = new Set(linked.map(item => item.id));
   const explicit = plan.transition && message.includes(plan.transition.quote) && definition.transitions.some(item => item.id === plan.transition!.id && item.from === next.scene) ? plan.transition : null;
@@ -226,6 +232,7 @@ export function publicNarrative(definition: NarrativeDefinition, state: Narrativ
       minimumTurns: scene.minTurns,
       conditions: transition.conditions.filter(condition => definition.counters.some(counter => counter.id === condition.counter && counter.visible)).map(condition => ({ ...condition, label: definition.counters.find(counter => counter.id === condition.counter)!.label, actual: state.counters[condition.counter] })),
     })),
+    milestones: (definition.milestones ?? []).filter(item => gatePasses(graph, "milestone/" + item.id)).map(({id,title,text}) => ({id,title,text})),
     suggestions: scene.suggestions, ending: ending && { id: ending.id, title: ending.title, text: ending.text }, endingCount: definition.endings.length,
     graph: { nodes: graph.order, edges: graph.size },
   };

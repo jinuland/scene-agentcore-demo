@@ -19,6 +19,9 @@ const rememberedModel = () => {
   let id; try { id = localStorage.getItem("scene.model"); } catch { /* Optional preference */ }
   return library.models.some(model => model.id === id) ? id : library.defaultModel;
 };
+const rememberedLength = () => {
+  try { return localStorage.getItem("scene.responseLength") === "short" ? "short" : "scene"; } catch { return "scene"; }
+};
 async function api(path, data, onDelta) {
   let init;
   if (data !== undefined) {
@@ -173,6 +176,11 @@ function reply(story, beats) {
   return '<div class="reply"><p class="speaker">' + esc(story.character) + '</p>' +
     beats.map(({kind,text}) => '<p class="beat beat-' + esc(kind) + '">' + esc(text) + '</p>').join("") + '</div>';
 }
+function milestoneCard(narrative) {
+  if (narrative?.ending || !narrative?.milestones?.length) return "";
+  const item = narrative.milestones.at(-1);
+  return '<section class="milestone-card" role="status"><p class="kicker">' + t("이야기 진행") + '</p><h2>' + esc(t(item.title)) + '</h2><p>' + esc(t(item.text)) + '</p><p class="caption">' + t("같은 대화에서 다음 장면을 이어가세요.") + '</p></section>';
+}
 function chatHistory(story, episode, pendingText) {
   const body = episode.turns.map(turn => {
     const card = cardFor(story, turn.mood);
@@ -183,7 +191,7 @@ function chatHistory(story, episode, pendingText) {
   }).join("");
   return '<div class="stream-wrap"><p class="opening-mark">' + icon("book") + ' ' + t("프롤로그") + '</p>' +
     prologue(story) + image(story.cards.neutral.file, story.cards.neutral.label, "scene-img", true) +
-    '<p class="opening-text">' + esc(story.prologue) + '</p>' + reply(story,[{kind:"speech",text:story.greeting}]) + body + endingCard(episode.narrative) +
+    '<p class="opening-text">' + esc(story.prologue) + '</p>' + reply(story,[{kind:"speech",text:story.greeting}]) + body + endingCard(episode.narrative) + milestoneCard(episode.narrative) +
     (pendingText ? '<div class="turn-player"><p>' + esc(pendingText) + '</p></div><p class="send-pending" role="status">' + esc(t("{name}의 다음 장면을 이어가는 중…", { name: story.character })) + ' <span data-pending-elapsed></span></p>' : '') + '</div>';
 }
 function statusPanel(story, episode) {
@@ -219,6 +227,7 @@ function narrativePanel(story, episode) {
       (n.fields ?? []).map(field => '<dt>' + esc(t(field.label)) + '</dt><dd>' + esc(t(field.value)) + '</dd>').join("") +
       '<dt>' + t("대화 턴") + '</dt><dd>' + episode.turns.length + '</dd></dl>') +
     (n.world?.trackingSinceTurn > 0 ? '<p class="tracking-note">' + esc(t("기존 {count}턴은 보존됩니다. 세계 상태는 이후 대화부터 기록합니다.", {count:n.world.trackingSinceTurn})) + '</p>' : '') +
+    (episode.narrativeUpgrade?.previousEnding && episode.version === episode.narrativeUpgrade.atTurn ? '<p class="tracking-note">' + t("이전 장면의 마무리 뒤에도 같은 대화를 이어갈 수 있어요. 대화와 선택은 보존했습니다.") + '</p>' : '') +
     block("지금의 목표", '<p>' + esc(t(n.objective)) + '</p>', 'current-goal') +
     block("스탯", '<div class="world-stats">' + n.counters.map(c => '<div><p class="stat-heading">' + esc(t(c.label)) + '<span class="stat-value">' + c.value + ' / ' + c.max + (c.unit ? ' ' + esc(t(c.unit)) : '') + '</span></p><progress max="' + c.max + '" value="' + c.value + '" aria-label="' + esc(t(c.label)) + '"></progress></div>').join("") + '</div>') +
     block("진행 중인 사건", active.length ? threads(active) : '<p class="caption">' + t(n.ending ? "이번 회차를 마무리했습니다." : "현재 진행 중인 사건이 없습니다.") + '</p>') +
@@ -226,6 +235,7 @@ function narrativePanel(story, episode) {
     ((n.timeline ?? []).length ? block("최근 변화", '<ol class="world-timeline">' + n.timeline.map(event=>'<li><span>' + esc(t("{turn}턴", {turn:event.turn})) + '</span><strong>' + esc(t(event.label)) + '</strong></li>').join("") + '</ol>') : '') +
     (unfinished.length ? '<details class="status-block"><summary>' + t("미완료로 남은 사건") + ' · ' + unfinished.length + '</summary><p class="caption">' + t("이 회차에서는 마무리하지 않았습니다.") + '</p>' + threads(unfinished) + '</details>' : '') +
     (resolved.length ? '<details class="status-block"><summary>' + t("마무리한 사건") + ' · ' + resolved.length + '</summary>' + threads(resolved) + '</details>' : '') +
+    ((n.milestones ?? []).length ? '<details class="status-block"><summary>' + t("이야기 진행 기록") + ' · ' + n.milestones.length + '</summary>' + n.milestones.map(item=>'<p><strong>' + esc(t(item.title)) + '</strong></p><p class="caption">' + esc(t(item.text)) + '</p>').join("") + '</details>' : '') +
     (n.ending ? block("이번 회차의 엔딩", '<strong>' + esc(t(n.ending.title)) + '</strong><p>' + esc(t(n.ending.text)) + '</p>', 'current-goal') : '<details class="status-block"><summary>' + t("다음 장면의 조건") + '</summary>' + n.gates.map(gate => '<p><strong>' + esc(t(gate.label)) + '</strong></p><p class="caption">' + esc(t("장면 대화 {actual}/{minimum}턴", {actual:n.sceneTurns, minimum:gate.minimumTurns})) + '</p>' + gate.conditions.map(c => '<p class="caption">' + esc(t(c.label)) + ' ' + (c.op === 'gte' ? '≥' : c.op === 'lte' ? '≤' : '=') + ' ' + c.value + ' · ' + t("현재") + ' ' + c.actual + '</p>').join("") + '<p class="caption">' + t(gate.ready ? "준비 완료 · 원할 때 다음 행동을 선택하세요." : "함께 나눈 경험과 선택에 따라 열립니다.") + '</p>').join("") + '</details>') +
     '<p class="caption ending-count">' + t("발견할 수 있는 엔딩 {count}개", {count:n.endingCount}) + '</p><div class="status-foot">' + button("btn", 'data-gallery="open"', t("이미지 보관함"), "imageIcon") + button("btn", 'data-start="' + esc(story.id) + '"', t("새 회차"), "spark") + '</div>';
 }
@@ -247,14 +257,14 @@ function chat(story, episode) {
     '<div id="suggestions" class="suggestions">' + suggestions(story,episode) + '</div><p id="turn-error" class="error" role="alert" hidden></p>' +
     '<div class="compose-line"><textarea id="compose" aria-label="' + t("대화 입력") + '" rows="1" maxlength="1500" placeholder="' + esc(t("{name}에게 무엇이라고 말할까요?", { name: story.character })) + '" required></textarea>' +
     '<button type="submit" class="send" aria-label="' + t("보내기") + '">' + icon("send") + '</button></div><div class="model-controls">' +
-    '<label>' + t("모델") + ' <select id="model" aria-label="' + t("모델 선택") + '">' + groups + '</select></label><span class="keyhint">' + t("Enter 보내기 · Shift+Enter 줄바꿈") + '</span></div>' +
+    '<label>' + t("모델") + ' <select id="model" aria-label="' + t("모델 선택") + '">' + groups + '</select></label><label class="response-length-label">' + t("답변 길이") + ' <select id="response-length" aria-label="' + t("답변 길이") + '"><option value="scene"' + (rememberedLength() === "scene" ? ' selected' : '') + '>' + t("장면형 · 길게") + '</option><option value="short"' + (rememberedLength() === "short" ? ' selected' : '') + '>' + t("대화형 · 짧게") + '</option></select></label><span class="keyhint">' + t("Enter 보내기 · Shift+Enter 줄바꿈") + '</span></div>' +
     '</div></form></div><aside id="story-status" aria-labelledby="status-heading" class="status-panel' + (statusOpen ? ' open' : '') + '">' + statusPanel(story,episode) + '</aside></div>');
   if (episode.turns.length) scrollChat();
   setEnded(episode);
 }
 function setEnded(episode) {
   if (!episode.narrative?.ending) return;
-  for (const element of document.querySelectorAll('#compose, #model, .send')) element.disabled = true;
+  for (const element of document.querySelectorAll('#compose, #model, #response-length, .send')) element.disabled = true;
   document.querySelector('#compose').placeholder = t("회차가 마무리되었습니다.");
 }
 function scrollChat() {
@@ -332,12 +342,12 @@ async function send() {
   if (!current) return;
   const { story, episode } = current;
   if (episode.narrative?.ending || pendingTurns.has(episode.id) || deletingEpisodes.has(episode.id)) return;
-  const draft = document.querySelector("#compose"), select = document.querySelector("#model");
+  const draft = document.querySelector("#compose"), select = document.querySelector("#model"), lengthSelect = document.querySelector("#response-length");
   const err = document.querySelector("#turn-error"), submit = document.querySelector(".send");
   const content = draft.value.trim();
   if (!content || !select.value) return;
   pendingTurns.add(episode.id);
-  draft.disabled = select.disabled = submit.disabled = true;
+  draft.disabled = select.disabled = lengthSelect.disabled = submit.disabled = true;
   err.hidden = true;
   document.querySelector("#suggestions").hidden = true;
   const feed = document.querySelector("#transcript");
@@ -349,13 +359,14 @@ async function send() {
     if (elapsed) elapsed.textContent = ((performance.now() - pendingStart) / 1000).toFixed(1) + t("초");
   }, 500);
   try {
-    const requestId = draft.dataset.requestText === content && draft.dataset.requestMode === select.value
+    const requestId = draft.dataset.requestText === content && draft.dataset.requestMode === select.value && draft.dataset.requestLength === lengthSelect.value
       ? draft.dataset.requestId : crypto.randomUUID();
     draft.dataset.requestId = requestId;
     draft.dataset.requestText = content;
     draft.dataset.requestMode = select.value;
+    draft.dataset.requestLength = lengthSelect.value;
     let liveText = "", live;
-    const updated = await api("episodes/" + episode.id + "/turn",{message:content,mode:select.value,requestId}, text => {
+    const updated = await api("episodes/" + episode.id + "/turn",{message:content,mode:select.value,responseLength:lengthSelect.value,requestId}, text => {
       if (current?.episode.id !== episode.id) return;
       if (!live) {
         const pending = feed.querySelector(".send-pending");
@@ -381,6 +392,7 @@ async function send() {
     delete draft.dataset.requestId;
     delete draft.dataset.requestText;
     delete draft.dataset.requestMode;
+    delete draft.dataset.requestLength;
   } catch (e) {
     if (current?.episode.id !== episode.id) return;
     feed.innerHTML = chatHistory(story,episode);
@@ -390,7 +402,7 @@ async function send() {
     clearInterval(elapsedTimer);
     pendingTurns.delete(episode.id);
     if (current?.episode.id === episode.id && draft.isConnected) {
-      draft.disabled = select.disabled = submit.disabled = false;
+      draft.disabled = select.disabled = lengthSelect.disabled = submit.disabled = false;
       document.querySelector("#suggestions").hidden = false;
       scrollChat();
       setEnded(current.episode);
@@ -467,6 +479,7 @@ app.addEventListener("submit", async event => {
   finally { trigger.disabled = false; }
 });
 app.addEventListener("change", event => {
+  if (event.target.id === "response-length") { try { localStorage.setItem("scene.responseLength", event.target.value); } catch { /* Optional preference */ } }
   if (event.target.id === "model") { try { localStorage.setItem("scene.model",event.target.value); } catch { /* Optional preference */ } }
 });
 app.addEventListener("keydown", event => {

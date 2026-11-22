@@ -5,6 +5,14 @@ try { saved = localStorage.getItem("scene.language"); } catch { /* Optional pref
 export const locale = languages.includes(requested) ? requested : languages.includes(saved) ? saved : "ko";
 
 const copy = {
+  "답변 길이": ["Reply length", "返答の長さ"],
+  "장면형 · 길게": ["Scene · Longer", "場面描写・長め"],
+  "대화형 · 짧게": ["Chat · Shorter", "会話・短め"],
+  "이야기 진행": ["Story progress", "物語の進行"],
+  "이야기 진행 기록": ["Story milestones", "物語の進行記録"],
+  "같은 대화에서 다음 장면을 이어가세요.": ["Continue to the next scene in this conversation.", "同じ会話で次の場面へ進めます。"],
+  "이전 장면의 마무리 뒤에도 같은 대화를 이어갈 수 있어요. 대화와 선택은 보존했습니다.": ["Continue in the same conversation after the earlier chapter. Your messages and choices are preserved.", "以前の場面の後も同じ会話を続けられます。会話と選択は保持しました。"],
+
   "학교 앞 편의점에서 만난 임사랑과, 각자의 속도로 일상을 나누고 신뢰를 쌓아가는 이야기. 선택한 도움은 준비 단계이며 실제 해결과 구별한다.": ["At a convenience store by her school, Im Sarang and the player share ordinary days at their own pace. Agreeing on support is preparation, not a completed resolution.","学校前のコンビニで出会ったイム・サランと、それぞれのペースで日常と信頼を重ねる物語。助けの合意は準備であり、実際の解決とは区別する。"],
   "관계와 선택": ["Relationship & choices","関係と選択"],
   "함께 도움을 요청할 준비 중": ["Preparing to ask for support together","一緒に助けを求める準備中"],

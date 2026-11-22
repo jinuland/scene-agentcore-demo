@@ -1,4 +1,5 @@
 import type { NarrativeDefinition as Definition } from "../../lib/platform/narrative-graph";
+import { continueReunion } from "./reunion-continuation";
 import type { Story } from "./stories";
 type Condition = Definition["facts"][number]["conditions"][number];
 const g = (counter: string, value = 1, op: Condition["op"] = "gte"): Condition => ({ counter, op, value });
@@ -100,7 +101,7 @@ function academy() {
   return d;
 }
 
-function reunion() {
+export function reunion() {
   const { d, L, counter: c, fact: f, choice: q, scene: s, event: e, transition: tr, field, thread, ending } = author("record-world", "counter", "2026-03-16T23:57:00+09:00", 0);
   d.summary = L("마지막 영업일의 심야 레코드 바 ‘파형’. 34세 서윤과 33세 전 연인이 2년 만에 만나, 남색 음반과 보내지 못한 편지를 어떻게 남길지 정한다.", "At the record bar Wave's final night, 34-year-old Seyun and her 33-year-old former partner meet after two years and decide what to do with an undelivered record and letter.", "最後の営業日の深夜のレコードバー「波形」。34歳のソユンと33歳の元恋人が2年ぶりに会い、渡せなかったレコードと手紙について決める。");
   c("trust", L("신뢰도", "Trust", "信頼度"), 0, 5, true); for (const id of ["talked", "letter-choice", "opened", "sealed", "song", "listened", "meet-again", "goodbye"]) c(id, id);
@@ -222,6 +223,6 @@ function enrichSarang(original: Definition): Definition {
 /** Definitions are authored per work; custom works receive a small, explicit baseline. */
 export function withWorldEngine(story: Story): Story {
   if(story.narrative) return story.id==="sarang" && story.narrative.version===2 ? {...story,narrative:enrichSarang(story.narrative)} : story;
-  const narrative=story.id==="outer-rim"?outerRim():story.id==="academy"?academy():story.id==="girlfriend"?reunion():story.id==="radio"?radioWorld():genericWorld(story);
+  const narrative=story.id==="outer-rim"?outerRim():story.id==="academy"?academy():story.id==="girlfriend"?continueReunion(reunion()):story.id==="radio"?radioWorld():genericWorld(story);
   return {...story,narrative};
 }

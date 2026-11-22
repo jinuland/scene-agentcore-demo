@@ -5,7 +5,7 @@ type Locale = "ko" | "en" | "ja";
 /** A read-only view of the committed state. Presentation updates never rewrite a pinned release. */
 function eligibleChoices(definition: NarrativeDefinition, state: NarrativeState, options: { locale?: Locale; presentation?: NarrativeDefinition } = {}) {
   const view = options.presentation ?? definition, locale = options.locale ?? "ko";
-  const tr = (text: string) => locale === "ko" ? text : view.translations?.[locale]?.[text] ?? text;
+  const tr = (text: string) => locale === "ko" ? text : view.translations?.[locale]?.[text] ?? definition.translations?.[locale]?.[text] ?? text;
   const values: Record<string, number> = { ...state.counters, "total-turns": state.turns, "scene-turns": state.sceneTurns, "elapsed-minutes": state.elapsedMinutes };
   const pass = (conditions: { counter: string; op: string; value: number }[]) => conditions.every(c => {
     const value = values[c.counter];
@@ -15,7 +15,7 @@ function eligibleChoices(definition: NarrativeDefinition, state: NarrativeState,
   const scene = view.scenes.find(scene => scene.id === state.scene) ?? current.scene;
   const actions = availableNarrativeActions(definition, state);
   const allowed = new Set(actions.map(action => action.id));
-  const score = (choice: NonNullable<typeof scene.choices>[number]) => (choice.priority ?? 0) + (actions.find(a => a.id === choice.actionId)?.opensTransition ? 50 : 0) + (actions.find(a => a.id === choice.actionId)?.once ? 10 : 0);
+  const score = (choice: NonNullable<typeof scene.choices>[number]) => (choice.priority ?? 0) + (actions.find(a => a.id === choice.actionId)?.opensTransition || actions.find(a => a.id === choice.actionId)?.opensTransitions?.length ? 50 : 0) + (actions.find(a => a.id === choice.actionId)?.once ? 10 : 0);
   const choices = (scene.choices ?? []).filter(choice => pass(choice.conditions)
     && !(choice.unless?.length && pass(choice.unless)) && (!choice.actionId || allowed.has(choice.actionId))
     && (!choice.transitionId || base.gates.some(gate => gate.id === choice.transitionId && gate.ready)))
@@ -46,6 +46,7 @@ export function presentNarrative(definition: NarrativeDefinition, state: Narrati
     world: { summary: tr(view.summary ?? ""), facts: current.facts.map(fact => ({ id: fact.id, text: tr(fact.text) })), version: definition.version, trackingSinceTurn: offset },
     fields: (view.statusFields ?? []).flatMap(field => { const value = field.cases.find(value => pass(value.conditions)); return value ? [{ id: field.id, label: tr(field.label), value: tr(value.text) }] : []; }),
     threads: (view.plotThreads ?? []).flatMap(thread => { const resolved = pass(thread.resolveWhen); return resolved || pass(thread.activeWhen) ? [{ id: thread.id, title: tr(thread.title), description: tr(resolved ? thread.resolution ?? "완료" : thread.description), status: resolved ? "resolved" : "active" }] : []; }),
+    milestones: base.milestones.map(item=>({...item,title:tr(item.title),text:tr(item.text)})),
     timeline, gates: base.gates.map(gate => ({ ...gate, label: tr(gate.label), conditions: gate.conditions.map(c => ({ ...c, label: tr(c.label) })) })),
     ending: base.ending && { ...base.ending, title: tr(base.ending.title), text: tr(base.ending.text) },
   };

@@ -15,10 +15,14 @@ const clientFor = (region: string) => {
 };
 
 export function sceneStreamPrompt(context: Parameters<RuntimeModel>[0]) {
-  const language = context.responseLanguage === "en" ? "English, roughly 160–300 words" : context.responseLanguage === "ja" ? "日本語400〜800字程度" : "한국어 400~800자";
+  const length = context.responseLength;
+  const language = context.responseLanguage === "en" ? (length === "short" ? "English, roughly 50–100 words" : "English, roughly 160–220 words") : context.responseLanguage === "ja" ? (length === "short" ? "日本語150〜300字程度" : "日本語550〜750字程度") : (length === "short" ? "한국어 본문 150~300자" : "한국어 본문 550~750자");
+  const lengthGuide = length === "scene"
+    ? (context.responseLanguage === "en" ? "Write about 160–220 English words in scene narration and dialogue. Each paragraph should advance a reaction or observation; never pad with repeated facts." : context.responseLanguage === "ja" ? "本文は日本語550〜750字を目標に、人物の反応・観察・会話で現在の場面を一歩進める。同じ説明で水増ししない。" : "이번 응답은 공백 포함 본문 550~750자의 소설형 캐릭터 대화로 작성한다. 플레이어의 마지막 말에 답하고, 인물의 작은 반응·관찰·대사로 현재 장면을 한 걸음 이어간다. 같은 말을 반복하거나 배경 설명을 나열해서 분량을 채우지 않는다. 플레이어의 말·행동·감정과 아직 확정하지 않은 이동·결말을 대신 쓰지 않는다. 네댓 문장으로 끝내지 말고 선택한 본문 길이를 지킨다.")
+    : length === "short" ? (context.responseLanguage === "en" ? "Keep this reply concise, about 50–100 English words." : context.responseLanguage === "ja" ? "今回は150〜300字程度で簡潔に答える。" : "이번에는 한국어 본문 150~300자 정도로 간결하게 답한다.") : "짧게 답할 상황은 더 짧아도 된다.";
   return [
     "당신은 캐릭터 챗의 한 인물이다. 현재 인물의 말투·관점·알고 있는 사실로 사용자의 마지막 말에 직접 반응한다.",
-    `대사와 필요한 장면·행동만 ${language}로 쓴다. 짧게 답할 상황은 더 짧아도 된다. JSON, 도구 호출, INFO창, 이름표, 표정 태그, 메타 설명과 내부 추론은 출력하지 않는다.`,
+    `대사와 필요한 장면·행동만 ${language}로 쓴다. JSON, 도구 호출, INFO창, 이름표, 표정 태그, 메타 설명과 내부 추론은 출력하지 않는다.`,
     "필요할 때만 [행동]과 [대사] 태그로 구분한다. 설정 설명과 같은 질문을 반복하지 않고, 실제로 달라진 상황에 맞는 반응이나 작은 다음 행동을 제시한다.",
     "이번 발언이 허용된 행동의 실행을 명시하면 그 행동에 대한 인물의 반응과 관찰 가능한 작은 결과까지 이어간다. 새 선택이 필요하지 않은데 준비나 동의 질문만 반복하며 멈추지 않는다. 근거 없이 합격·능력·문제 해결을 확정하지 않는다.",
     "플레이어의 새 말·행동·감정·능력을 대신 확정하지 않는다. 사용자 주장과 희망을 확정된 세계 사실로 바꾸지 않는다. 현재 사건·장소·시간·인물의 소통 방식·일정·미공개 사실의 범위를 지킨다.",
@@ -27,6 +31,7 @@ export function sceneStreamPrompt(context: Parameters<RuntimeModel>[0]) {
     JSON.stringify({ character: context.character, scene: context.scene, facts: context.visibleFacts,
       boundaries: context.boundaries, memories: context.memories, recent: context.recent }),
     responseLanguageInstruction(context.responseLanguage),
+    lengthGuide,
   ].join("\n");
 }
 

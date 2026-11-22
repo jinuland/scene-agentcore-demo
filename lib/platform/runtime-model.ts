@@ -14,6 +14,7 @@ export const runtimeContextSchema = z
     policy: text,
     reportUsage: z.boolean().optional(),
     responseLanguage: z.enum(["en", "ja"]).optional(),
+    responseLength: z.enum(["short", "scene"]).optional(),
     narrative: z.object({ definition: narrativeDefinitionSchema, state: narrativeStateSchema }).strict().optional(),
     dialogueMode: dialogueModeSchema.optional(),
     character: z

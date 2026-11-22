@@ -90,11 +90,11 @@ test("record-bar letter alternatives are exclusive even in one plan and from eit
     assert.equal(state.counters.opened+state.counters.sealed,1);
     assert.ok(!presentNarrative(d,state).suggestions.some(s=>s.includes("편지")));
     for(const action of ["choose-song","listen","meet-again"])state=step(d,state,action);
-    assert.equal(state.ending,"another-coffee");assert.equal(state.elapsedMinutes,3);
+    assert.equal(state.ending,undefined);assert.equal(state.scene,"planning");assert.ok(presentNarrative(d,state).milestones.some(m=>m.id==="another-coffee"));assert.equal(state.elapsedMinutes,3);
   }
   const both=step(d,initialNarrativeState(d),"open-letter-at-counter","leave-sealed-at-counter");
   assert.equal(both.counters.opened+both.counters.sealed,1);
-  assert.equal(play(d,["goodbye"]).ending,"goodnight");
+  assert.equal(play(d,["goodbye"]).scene,"between-days");assert.equal(play(d,["close-relationship"]).ending,"separate-paths");
 });
 
 test("radio private listening never broadcasts; public and private follow-ups and farewell are separate endings",()=>{
