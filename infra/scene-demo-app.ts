@@ -8,6 +8,7 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as secrets from "aws-cdk-lib/aws-secretsmanager";
 import * as sources from "aws-cdk-lib/aws-lambda-event-sources";
+import * as s3 from "aws-cdk-lib/aws-s3";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { mantleDialogueModels, mantleRegionSchema, playerDialogueModels } from "../lib/platform/dialogue-modes";
 
@@ -86,6 +87,7 @@ projector.addEventSource(new sources.DynamoEventSource(data, {
   onFailure: new sources.SqsDlq(projectionFailures),
   filters: [lambda.FilterCriteria.filter({ dynamodb: { Keys: { record: { S: lambda.FilterRule.beginsWith("episode#") } } } })],
 }));
+const creatorMedia = new s3.Bucket(stack,"CreatorMedia",{blockPublicAccess:s3.BlockPublicAccess.BLOCK_ALL,encryption:s3.BucketEncryption.S3_MANAGED,enforceSSL:true,lifecycleRules:[{expiration:cdk.Duration.days(8)}],removalPolicy:cdk.RemovalPolicy.DESTROY});
 const secret = new secrets.Secret(stack, "DemoAccess", {
   generateSecretString: { passwordLength: 16, excludePunctuation: true },
 });
@@ -100,6 +102,7 @@ const web = new lambda.Function(stack, "SceneWeb", {
   logGroup,
   environment: {
     CHARACTER_DEMO_TABLE: data.tableName,
+    CHARACTER_DEMO_MEDIA_BUCKET: creatorMedia.bucketName,
     CHARACTER_DEMO_ACCESS_CODE: secret.secretValue.unsafeUnwrap(),
     CHARACTER_DEMO_PUBLIC_ACCESS: String(access === "public"),
     CHARACTER_DEMO_RUNTIME_ARN: runtime.agentRuntimeArn,
@@ -107,6 +110,7 @@ const web = new lambda.Function(stack, "SceneWeb", {
     STUDIO_MANTLE_CHAT_REGION: mantleRegion,
   },
 });
+creatorMedia.grantReadWrite(web,"creator/*");
 data.grant(web, "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:DeleteItem");
 web.addToRolePolicy(new iam.PolicyStatement({
   actions: ["bedrock-agentcore:InvokeAgentRuntime"],
@@ -151,3 +155,5 @@ new cdk.CfnOutput(stack, "AgentRuntimeArn", { value: runtime.agentRuntimeArn });
 new cdk.CfnOutput(stack, "WebLogGroup", { value: logGroup.logGroupName });
 new cdk.CfnOutput(stack, "DataTableName", { value: data.tableName });
 new cdk.CfnOutput(stack, "GraphProjectorName", { value: projector.functionName });
+
+new cdk.CfnOutput(stack,"CreatorMediaBucket",{value:creatorMedia.bucketName});

@@ -9,6 +9,15 @@ export function dynamoStore(TableName: string): SceneStore {
   const key = (owner: string, kind: "episode" | "draft", id: string) => ({ owner, record: `${kind}#${id}` });
   const time = () => Math.floor(Date.now() / 1000);
   const ttl = () => time() + 7 * 86400;
+  const update = async (command: UpdateCommand) => {
+    for(let attempt=0;;attempt++){
+      try{return await db.send(command);}
+      catch(error){
+        if((error as Error).name !== "TransactionConflictException" || attempt>=4)throw error;
+        await new Promise(resolve=>setTimeout(resolve,25*2**attempt+Math.floor(Math.random()*25)));
+      }
+    }
+  };
   const conflict = (error: unknown) => (error as { name?: string })?.name === "ConditionalCheckFailedException";
   const read = async <T>(Key: ReturnType<typeof key>) => (
     await db.send(new GetCommand({ TableName, Key, ConsistentRead: true }))
@@ -39,7 +48,11 @@ export function dynamoStore(TableName: string): SceneStore {
   return {
     findDraft: (owner, id) => read<Story>(key(owner, "draft", id)),
     async drafts(owner) { return (await list(owner, "draft")).map(row => row.data as Story); },
-    putDraft: (owner, draft) => put(owner, "draft", draft),
+    async putDraft(owner, draft, expectedRevision) {
+      if (expectedRevision === undefined) return put(owner,"draft",draft);
+      try { await db.send(new PutCommand({TableName,Item:{...key(owner,"draft",draft.id),data:draft,updated:Date.now(),expires:ttl()},ConditionExpression:"#d.#c.#r = :r AND #d.#c.#s = :s",ExpressionAttributeNames:{"#d":"data","#c":"creator","#r":"revision","#s":"status"},ExpressionAttributeValues:{":r":expectedRevision,":s":"draft"}})); }
+      catch(error){ if(conflict(error)) throw new StudioError(409,"초안이 변경됐습니다. 다시 불러와 주세요.");throw error; }
+    },
     async sessions(owner) {
       return (await list(owner, "episode")).slice(0, 30).map(row => ({ id: row.data.id as string, story: row.data.story as string }));
     },
@@ -59,7 +72,7 @@ export function dynamoStore(TableName: string): SceneStore {
     },
     async lockTurn(owner, episode, token) {
       try {
-        await db.send(new UpdateCommand({ TableName, Key: key(owner, "episode", episode.id),
+        await update(new UpdateCommand({ TableName, Key: key(owner, "episode", episode.id),
           ConditionExpression: "#rev = :rev AND (attribute_not_exists(heldUntil) OR heldUntil < :now)",
           UpdateExpression: "SET #token = :token, heldUntil = :until",
           ExpressionAttributeNames: { "#rev": "rev", "#token": "token" },
@@ -70,7 +83,7 @@ export function dynamoStore(TableName: string): SceneStore {
     },
     async saveTurn(owner, episode, token) {
       try {
-        await db.send(new UpdateCommand({ TableName, Key: key(owner, "episode", episode.id),
+        await update(new UpdateCommand({ TableName, Key: key(owner, "episode", episode.id),
           ConditionExpression: "#token = :token AND #rev = :previous",
           UpdateExpression: "SET #data = :payload, #rev = :rev, #updated = :updated, #expires = :expires REMOVE #token, heldUntil",
           ExpressionAttributeNames: { "#data": "data", "#token": "token", "#rev": "rev", "#updated": "updated", "#expires": "expires" },
@@ -83,7 +96,7 @@ export function dynamoStore(TableName: string): SceneStore {
     },
     async unlockTurn(owner, id, token) {
       try {
-        await db.send(new UpdateCommand({ TableName, Key: key(owner, "episode", id),
+        await update(new UpdateCommand({ TableName, Key: key(owner, "episode", id),
           ConditionExpression: "#token = :token", UpdateExpression: "REMOVE #token, heldUntil",
           ExpressionAttributeNames: { "#token": "token" },
           ExpressionAttributeValues: { ":token": token },

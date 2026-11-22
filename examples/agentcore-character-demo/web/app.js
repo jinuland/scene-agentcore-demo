@@ -1,3 +1,4 @@
+import { mountCreator } from "./creator.js";
 import { locale, setupLanguage, t } from "./i18n.js";
 
 const app = document.querySelector("#app");
@@ -93,9 +94,10 @@ function setContent(markup) {
   app.setAttribute("aria-busy", "false");
 }
 function discover() {
-  const [feature] = library.stories;
+  const visibleStories=library.stories.filter(s=>!s.preview);
+  const [feature] = visibleStories;
   const genres = ["전체", ...new Set(library.stories.map(story => story.genre))];
-  const filtered = filter === "전체" ? library.stories : library.stories.filter(s => s.genre === filter);
+  const filtered = filter === "전체" ? visibleStories : visibleStories.filter(s => s.genre === filter);
   const cards = filtered.map(story => '<button class="card story-' + esc(story.id) + '" data-story="' + esc(story.id) + '"><div class="thumb">' +
     image(story.cover, "") + badge(t(story.custom ? "내 작품" : story.genre)) + '</div><div class="card-copy"><h3>' + esc(story.title) + '</h3><p>' + esc(story.tagline) + '</p></div></button>').join("");
   setContent('<div class="container"><div class="topline"><div><p class="kicker">' + t("STORY LIBRARY") + '</p><h2 class="section-title">' + t("작품 탐색") + '</h2></div>' +
@@ -118,6 +120,8 @@ function detail(story) {
     '<div class="actions">' + (last ? button("btn primary", 'data-episode="' + last.id + '"', t("이어하기"), "play") : '') +
     button(last ? "btn" : "btn primary", 'data-start="' + esc(story.id) + '"', t(last ? "새 회차 시작" : "대화 시작"), "arrow") +
     (story.previewTurns?.length ? button("btn", 'data-story-preview="open" aria-controls="story-preview"', t("예시 대화 보기"), "chatIcon") : "") +
+    button('btn','data-edit-story="'+esc(story.id)+'"','편집용으로 불러오기','editIcon') +
+    (story.starts?.length ? '<label>시작 설정<select id="play-start">'+story.starts.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.title)+'</option>').join('')+'</select></label>' : '') +
     '</div>' + prologue(story, true) + storyPreview(story) + '</div>');
 }
 function prologue(story, expanded = false) {
@@ -157,19 +161,12 @@ function shelf() {
   setContent('<div class="container new-story"><p class="kicker">' + t("YOUR EPISODES") + '</p><h1 class="section-title">' + t("내 대화") + '</h1><p class="subtle">' + t("이 브라우저에서 열었던 회차를 다시 읽을 수 있어요.") + '</p>' +
     (rows ? '<div class="shelf">' + rows + '</div>' : '<p class="empty">' + t("아직 대화가 없어요. 작품을 하나 골라 시작해 보세요.") + '</p>' + button("btn primary", 'data-view="discover"', t("작품 탐색"), "arrow")) + '</div>');
 }
-function craft() {
-  const genres = [...new Set(library.stories.map(s => s.genre))];
-  setContent('<div class="container new-story"><p class="kicker">' + t("CREATOR STUDIO") + '</p><h1 class="section-title">' + t("작품 만들기") + '</h1><p class="subtle">' + t("캐릭터와 첫 장면을 정한 뒤 새 회차에서 곧바로 대화해 보세요.") + '</p>' +
-    '<form id="draft" class="craft-form"><div class="fields">' +
-    '<label>' + t("작품 제목") + '<input name="title" maxlength="48" placeholder="' + t("예: 심야 수리점") + '" required></label>' +
-    '<label>' + t("캐릭터 이름") + '<input name="name" maxlength="24" placeholder="' + t("예: 윤") + '" required></label>' +
-    '<label>' + t("장르") + '<select name="genre">' + genres.map(g => '<option value="' + esc(g) + '">' + esc(t(g)) + '</option>').join("") + '</select></label>' +
-    '<label>' + t("표지") + '<select name="cover">' + library.stories.filter(s => !s.custom).map(s => '<option value="' + s.id + '">' + esc(t("{genre} 표지", { genre: t(s.genre) })) + '</option>').join("") + '</select></label></div>' +
-    '<label>' + t("세계관과 첫 상황") + '<textarea name="setting" rows="4" maxlength="700" placeholder="' + t("장소, 캐릭터의 말투와 지금 일어난 일을 적어 주세요.") + '" required></textarea></label>' +
-    '<label>' + t("플레이어 역할") + '<input name="role" maxlength="120" placeholder="' + t("예: 고장 난 기기를 맡기러 온 손님") + '" required></label>' +
-    '<label>' + t("캐릭터의 첫 대사") + '<textarea name="greeting" rows="2" maxlength="400" placeholder="' + t("예: 불은 껐지만, 아직 문은 안 잠갔어요.") + '" required></textarea></label>' +
-    '<label>' + t("신뢰도가 오르는 행동") + ' <span class="form-hint">' + t("선택 사항 · 해당하는 발언에 신뢰도 +1") + '</span><input name="trustWhen" maxlength="180" placeholder="' + t("예: 손님이 수리를 함께 돕겠다고 자발적으로 말한다.") + '"></label>' +
-    '<p id="draft-error" class="error" role="alert" hidden></p><div class="actions"><button class="btn primary" type="submit">' + icon("play") + t("저장하고 테스트 채팅") + '</button></div></form></div>');
+function craft(sourceId) {
+  setContent('<div id="creator-host"><p class="loading">작품 편집기를 불러오는 중입니다.</p></div>');
+  void mountCreator(document.querySelector('#creator-host'),{api,library,sourceId,
+    onPublished:story=>{library.stories=[...library.stories.filter(s=>s.id!==story.id),story];message('작품을 새 버전으로 등록했습니다.');},
+    onTest:result=>{library.stories.push(result.story);go('chat',result.episodeId);},
+  });
 }
 function cardFor(story, key) { return story.cards[key] ?? story.cards.neutral; }
 function reply(story, beats) {
@@ -185,8 +182,8 @@ function chatHistory(story, episode, pendingText) {
   const body = episode.turns.map(turn => {
     const card = cardFor(story, turn.mood);
     return '<article class="turn"><div class="turn-player"><p>' + esc(turn.input) + '</p></div>' +
-      (turn.mood !== "neutral" ? image(card.file, card.label, "scene-img") : "") +
-      reply(story, turn.beats) + '<p class="turn-caption">' + esc(modelFor(turn.mode)) + ' · ' + (turn.timing / 1000).toFixed(1) + t("초") +
+      (turn.media?.length ? turn.media.map(m=>image(m.file,m.label,"scene-img")).join("") : turn.mood !== "neutral" && story.cards[turn.mood] && !story.hasMedia ? image(card.file, card.label, "scene-img") : "") +
+      reply({...story,character:turn.speaker??story.character}, turn.beats) + '<p class="turn-caption">' + esc(modelFor(turn.mode)) + ' · ' + (turn.timing / 1000).toFixed(1) + t("초") +
       (turn.trustQuote ? ' <strong title="' + esc(turn.trustQuote) + '">' + t("신뢰도 +1") + '</strong>' : '') + '</p>' + turnTiming(turn) + '</article>';
   }).join("");
   return '<div class="stream-wrap"><p class="opening-mark">' + icon("book") + ' ' + t("프롤로그") + '</p>' +
@@ -229,7 +226,7 @@ function narrativePanel(story, episode) {
     (n.world?.trackingSinceTurn > 0 ? '<p class="tracking-note">' + esc(t("기존 {count}턴은 보존됩니다. 세계 상태는 이후 대화부터 기록합니다.", {count:n.world.trackingSinceTurn})) + '</p>' : '') +
     (episode.narrativeUpgrade?.previousEnding && episode.version === episode.narrativeUpgrade.atTurn ? '<p class="tracking-note">' + t("이전 장면의 마무리 뒤에도 같은 대화를 이어갈 수 있어요. 대화와 선택은 보존했습니다.") + '</p>' : '') +
     block("지금의 목표", '<p>' + esc(t(n.objective)) + '</p>', 'current-goal') +
-    block("스탯", '<div class="world-stats">' + n.counters.map(c => '<div><p class="stat-heading">' + esc(t(c.label)) + '<span class="stat-value">' + c.value + ' / ' + c.max + (c.unit ? ' ' + esc(t(c.unit)) : '') + '</span></p><progress max="' + c.max + '" value="' + c.value + '" aria-label="' + esc(t(c.label)) + '"></progress></div>').join("") + '</div>') +
+    block("스탯", '<div class="world-stats">' + n.counters.map(c => '<div><p class="stat-heading">' + esc(t(c.label)) + '<span class="stat-value">' + esc(c.displayValue ?? c.value + ' / ' + c.max) + (c.unit ? ' ' + esc(t(c.unit)) : '') + '</span></p>' + (c.displayValue === undefined ? '<progress max="' + (c.max-(c.min??0)||1) + '" value="' + (c.value-(c.min??0)) + '" aria-label="' + esc(t(c.label)) + '"></progress>' : '') + '</div>').join("") + '</div>') +
     block("진행 중인 사건", active.length ? threads(active) : '<p class="caption">' + t(n.ending ? "이번 회차를 마무리했습니다." : "현재 진행 중인 사건이 없습니다.") + '</p>') +
     (n.world?.summary ? block("세계관", '<p>' + esc(t(n.world.summary)) + '</p><details><summary>' + t("현재 공개된 사실") + ' · ' + n.world.facts.length + '</summary><ul class="world-facts">' + n.world.facts.map(fact=>'<li>' + esc(t(fact.text)) + '</li>').join("") + '</ul></details>') : '') +
     ((n.timeline ?? []).length ? block("최근 변화", '<ol class="world-timeline">' + n.timeline.map(event=>'<li><span>' + esc(t("{turn}턴", {turn:event.turn})) + '</span><strong>' + esc(t(event.label)) + '</strong></li>').join("") + '</ol>') : '') +
@@ -246,7 +243,8 @@ function suggestions(story, episode) {
   return picks.map(s => button("suggest", 'data-suggestion="' + esc(s) + '"', esc(s))).join("");
 }
 function chat(story, episode) {
-  const model = rememberedModel();
+  const replyLength = !episode.turns.length ? story.recommendedLength ?? rememberedLength() : rememberedLength();
+  const model = !episode.turns.length && story.recommendedModel ? story.recommendedModel : rememberedModel();
   const groups = [...new Set(library.models.map(m => m.provider))].map(provider => '<optgroup label="' + esc(provider) + '">' +
     library.models.filter(m => m.provider === provider).map(m => '<option value="' + esc(m.id) + '"' + (m.id === model ? ' selected' : '') + '>' + esc(m.label) + '</option>').join("") + '</optgroup>').join("");
   setContent('<div class="storychat"><div class="chat-core"><header class="chatbar">' + iconButton('data-story="' + esc(story.id) + '"',"back",t("작품으로 돌아가기")) +
@@ -257,7 +255,7 @@ function chat(story, episode) {
     '<div id="suggestions" class="suggestions">' + suggestions(story,episode) + '</div><p id="turn-error" class="error" role="alert" hidden></p>' +
     '<div class="compose-line"><textarea id="compose" aria-label="' + t("대화 입력") + '" rows="1" maxlength="1500" placeholder="' + esc(t("{name}에게 무엇이라고 말할까요?", { name: story.character })) + '" required></textarea>' +
     '<button type="submit" class="send" aria-label="' + t("보내기") + '">' + icon("send") + '</button></div><div class="model-controls">' +
-    '<label>' + t("모델") + ' <select id="model" aria-label="' + t("모델 선택") + '">' + groups + '</select></label><label class="response-length-label">' + t("답변 길이") + ' <select id="response-length" aria-label="' + t("답변 길이") + '"><option value="scene"' + (rememberedLength() === "scene" ? ' selected' : '') + '>' + t("장면형 · 길게") + '</option><option value="short"' + (rememberedLength() === "short" ? ' selected' : '') + '>' + t("대화형 · 짧게") + '</option></select></label><span class="keyhint">' + t("Enter 보내기 · Shift+Enter 줄바꿈") + '</span></div>' +
+    '<label>' + t("모델") + ' <select id="model" aria-label="' + t("모델 선택") + '">' + groups + '</select></label><label class="response-length-label">' + t("답변 길이") + ' <select id="response-length" aria-label="' + t("답변 길이") + '"><option value="scene"' + (replyLength === "scene" ? ' selected' : '') + '>' + t("장면형 · 길게") + '</option><option value="short"' + (replyLength === "short" ? ' selected' : '') + '>' + t("대화형 · 짧게") + '</option></select></label><span class="keyhint">' + t("Enter 보내기 · Shift+Enter 줄바꿈") + '</span></div>' +
     '</div></form></div><aside id="story-status" aria-labelledby="status-heading" class="status-panel' + (statusOpen ? ' open' : '') + '">' + statusPanel(story,episode) + '</aside></div>');
   if (episode.turns.length) scrollChat();
   setEnded(episode);
@@ -288,13 +286,13 @@ async function renderRoute() {
       setContent('<p class="loading">' + t("회차를 불러오는 중입니다.") + '</p>');
       const episode = await api("episodes/" + encodeURIComponent(id));
       if (revision !== routeRevision) return;
-      const story = storyFor(episode.story);
+      const story = episode.storyView ?? storyFor(episode.story);
       if (!story) throw new Error(t("작품을 찾지 못했습니다."));
       current = { story, episode };
       upsertSession(episode);
       chat(story,episode);
     } else if (view === "story" && storyFor(id)) detail(storyFor(id));
-    else if (view === "craft") craft();
+    else if (view === "craft") craft(id);
     else if (view === "shelf") shelf();
     else discover();
     window.scrollTo(0,0);
@@ -306,7 +304,7 @@ async function start(id, trigger) {
   if (trigger) trigger.disabled = true;
   const revision = routeRevision;
   try {
-    const episode = await api("episodes",{story:id});
+    const episode = await api("episodes",{story:id,...(document.querySelector("#play-start")?{startId:document.querySelector("#play-start").value}:{})});
     upsertSession(episode);
     if (revision === routeRevision) go("chat",episode.id);
   } catch (e) { message(e.message); }
@@ -415,7 +413,7 @@ async function send() {
 function openGallery() {
   if (!current) return;
   const {story,episode} = current;
-  const cards = new Map([story.cards.neutral, ...episode.turns.map(t => cardFor(story,t.mood))].map(card => [card.file,card]));
+  const cards = new Map([story.cards.neutral, ...episode.turns.flatMap(t => t.media?.length?t.media:[cardFor(story,t.mood)])].map(card => [card.file,card]));
   document.querySelector("#gallery-images").innerHTML = [...cards.values()].map(card => '<figure>' + image(card.file,card.label) +
     '<figcaption class="caption">' + esc(card.label) + '</figcaption></figure>').join("");
   dialog.showModal();
@@ -426,6 +424,7 @@ document.addEventListener("click", event => {
   const d = trigger.dataset;
   if (d.view) go(d.view);
   if (d.story) go("story",d.story);
+  if (d.editStory) go("craft",d.editStory);
   if (d.storyPreview) {
     const heading = document.querySelector("#story-preview-heading");
     heading?.focus({preventScroll:true});

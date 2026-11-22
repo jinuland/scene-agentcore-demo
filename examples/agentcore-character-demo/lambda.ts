@@ -1,3 +1,4 @@
+import { s3CreatorMedia } from "./creator-media";
 import { join } from "node:path";
 import { dailyTurnQuota, dynamoStore } from "./dynamo-store";
 import { createSceneService } from "./service";
@@ -29,6 +30,7 @@ const handle = createSceneService({
   accessCode: CHARACTER_DEMO_ACCESS_CODE,
   publicAccess: process.env.CHARACTER_DEMO_PUBLIC_ACCESS === "true",
   chargeTurn: dailyTurnQuota(CHARACTER_DEMO_TABLE),
+  mediaStore: process.env.CHARACTER_DEMO_MEDIA_BUCKET ? s3CreatorMedia(process.env.CHARACTER_DEMO_MEDIA_BUCKET) : undefined,
 });
 
 async function responseFor(event: FunctionUrlEvent) {
@@ -43,7 +45,7 @@ async function responseFor(event: FunctionUrlEvent) {
   for (const [name, value] of Object.entries(event.headers)) if (value !== undefined) headers.set(name, value);
   if (event.cookies?.length) headers.set("Cookie", event.cookies.join("; "));
   const body = event.body === undefined ? undefined : Uint8Array.from(Buffer.from(event.body, event.isBase64Encoded ? "base64" : "utf8"));
-  if (body && body.byteLength > 8192) return new Response(null, { status: 413 });
+  if (body && body.byteLength > (event.rawPath.startsWith("/api/creator") ? 1000000 : 8192)) return new Response(null, { status: 413 });
   return handle(new Request(url, { method: http.method, headers, body }));
 }
 

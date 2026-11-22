@@ -46,8 +46,13 @@ export function sqliteStore(path: string): SceneStore {
     async drafts(owner) {
       return database.prepare("SELECT data FROM draft WHERE owner = ? ORDER BY rowid DESC").all(owner).flatMap(row => data<Story>(row) ?? []);
     },
-    async putDraft(owner, draft) {
-      database.prepare("INSERT INTO draft (id, owner, data) VALUES (?, ?, ?)").run(draft.id, owner, JSON.stringify(draft));
+    async putDraft(owner, draft, expectedRevision) {
+      if (expectedRevision === undefined) database.prepare("INSERT INTO draft (id, owner, data) VALUES (?, ?, ?)").run(draft.id, owner, JSON.stringify(draft));
+      else {
+        const old=data<Story>(database.prepare("SELECT data FROM draft WHERE id = ? AND owner = ?").get(draft.id,owner));
+        if (old?.creator?.status !== "draft" || old.creator.revision !== expectedRevision) throw new StudioError(409,"초안이 변경됐습니다. 다시 불러와 주세요.");
+        database.prepare("UPDATE draft SET data = ? WHERE id = ? AND owner = ?").run(JSON.stringify(draft),draft.id,owner);
+      }
     },
     async sessions(owner) {
       return database.prepare("SELECT id, story FROM episode WHERE owner = ? ORDER BY updated DESC LIMIT 30").all(owner)

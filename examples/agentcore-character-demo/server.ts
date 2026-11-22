@@ -1,3 +1,4 @@
+import { fileCreatorMedia } from "./creator-media";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { resolve } from "node:path";
@@ -36,6 +37,7 @@ const handle = createSceneService({
   store: sqliteStore(resolve(process.env.CHARACTER_DEMO_DB ?? ".studio/agentcore-character-demo/demo.sqlite")),
   web: fileURLToPath(new URL("./web/", import.meta.url)),
   aws,
+  mediaStore:fileCreatorMedia(resolve(process.env.CHARACTER_DEMO_MEDIA ?? ".studio/agentcore-character-demo/media")),
 });
 createServer(async (req, res) => {
   const host = req.headers.host;
@@ -58,7 +60,7 @@ createServer(async (req, res) => {
     let size = 0;
     for await (const chunk of req) {
       size += chunk.length;
-      if (size > 8192) {
+      if (size > 1000000) {
         res.writeHead(413).end();
         return;
       }

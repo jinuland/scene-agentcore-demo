@@ -253,6 +253,7 @@ const translations: Record<Exclude<SceneLocale, "ko">, Record<string, Translatio
 
 export function localizeStory(story: Story, locale: SceneLocale): Story {
   if (locale === "ko") return story;
+  if (story.creator) return story;
   if (story.custom) {
     const [scene, job, voice, first, second, cover] = locale === "en"
       ? ["Opening scene", "The character talking with the player", "Natural speech that suits the character and scene.", "What's going on here?", "Can you introduce yourself?", "Story cover"]

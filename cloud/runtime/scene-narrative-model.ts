@@ -1,6 +1,6 @@
 import { structured } from "../../lib/studio/bedrock";
 import { dialogueModelSettings } from "../../lib/platform/dialogue-modes";
-import { advanceNarrative, availableNarrativeActions, narrativeContext } from "../../lib/platform/narrative-graph";
+import { advanceNarrative, availableNarrativeActions, narrativeContext, eligibleNarrativeMedia } from "../../lib/platform/narrative-graph";
 import { presentNarrative, resolveNarrativeChoice } from "../../lib/platform/narrative-presentation";
 import type { RuntimeModel } from "../../lib/platform/runtime-model";
 import { sceneDemoModel } from "./scene-demo-model";
@@ -52,8 +52,12 @@ export async function runNarrativeModel(context: Parameters<RuntimeModel>[0], si
     const records = progressed.state.events.filter(event => event.id === id);
     return { action: id, count: records.length, latestTurn: records.at(-1)!.turn, quote: records.at(-1)!.quote.slice(0, 120) };
   });
+  const speaker=definition.characters?.find(c=>c.id===current.scene.speaker);
+  const media=eligibleNarrativeMedia(definition,progressed.state).filter(m=>!m.characterId || m.characterId===speaker?.id);
   const result = await actor({
     ...actorContext,
+    ...(speaker ? {character:{id:speaker.id,name:speaker.name,role:speaker.role,voice:speaker.voice,personality:[definition.summary,speaker.description,"외모: "+speaker.appearance].filter(Boolean).join("\n").slice(0,4000)}} : {}),
+    sceneExpressions:media.filter(m=>!m.eventId).map(m=>({emotion:m.emotion,when:m.when})),
     policy: [
       context.policy,
       "scene과 visibleFacts는 이번 행동이 반영된 확정 상태이며 recent의 이전 생성문이나 사용자가 요청한 희망보다 우선한다. 이를 기준으로 이번 발언에 자연스럽게 답한다. scene.opening은 현재 장면의 배경이지 도입을 반복하라는 지시가 아니다.",
@@ -69,7 +73,7 @@ export async function runNarrativeModel(context: Parameters<RuntimeModel>[0], si
     scene: { id: current.scene.id, title: current.scene.title, opening: current.scene.opening, playerRole: context.scene?.playerRole ?? "플레이어", ending: !!current.ending, witnessedChoices: [] },
     visibleFacts: [
       ...context.visibleFacts.filter(fact => fact.id !== "opening-dialogue" && fact.id !== "current-status" && !fact.id.startsWith("fact-")),
-      ...current.facts.map(fact => ({ id: fact.id, statement: fact.text })),
+      ...current.facts.filter(fact=>!fact.keywords?.length || fact.keywords.some(k=>(context.message+" "+context.recent.slice(-4).map(t=>t.text).join(" ")).toLocaleLowerCase().includes(k.toLocaleLowerCase()))).map(fact => ({ id: fact.id, statement: fact.text })),
       { id: "turn-resolution", statement: JSON.stringify({ previousScene: before.scene.id, currentScene: current.scene.id, currentLocation: current.scene.location, sceneChanged: progressed.transitioned, requestedTransition: plan.value.transition?.id ?? null, appliedActions: progressed.applied.map(id => ({ id, meaning: definition.events.find(event => event.id === id)!.when })), ending: current.ending?.id ?? null }) },
       { id: "current-objective", statement: `현재 목표: ${current.scene.objective}. 현재 장소: ${current.scene.location}.` },
       { id: "story-clock", statement: definition.clockStyle === "elapsed" ? `작품의 상대 경과 시간: ${progressed.state.elapsedMinutes}분. 지구의 날짜로 표현하지 않는다.` : `현재 이야기 시각: ${new Date(new Date(definition.startTime).getTime() + progressed.state.elapsedMinutes * 60000).toISOString()}. 작품의 기준 시간대는 시작 시각(${definition.startTime})의 시간대다.` },
@@ -80,7 +84,7 @@ export async function runNarrativeModel(context: Parameters<RuntimeModel>[0], si
   }, signal, execution);
   // Internal context IDs stay internal; graph fact IDs retain their published provenance.
   const internalIds = new Set(["current-objective", "ending-result", "story-clock", "past-events", "turn-resolution", "canonical-status"]);
-  return { ...result, imageKey: current.scene.mood, memories: [...result.memories, ...plan.value.memories.filter(memory => context.message.includes(memory.quote))].slice(0, 8), usedFactIds: result.usedFactIds.filter(id => !internalIds.has(id)), narrativeState: progressed.state,
+  return { ...result, imageKey: result.imageKey ?? current.scene.mood, memories: [...result.memories, ...plan.value.memories.filter(memory => context.message.includes(memory.quote))].slice(0, 8), usedFactIds: result.usedFactIds.filter(id => !internalIds.has(id)), narrativeState: progressed.state,
     ...(result.usage ? { usage: { ...result.usage, interpretationMs, graphMs } } : {}),
   };
 }

@@ -13,6 +13,7 @@ export const runtimeContextSchema = z
   .object({
     policy: text,
     reportUsage: z.boolean().optional(),
+    sceneExpressions: z.array(z.object({emotion:z.enum(["neutral","focused","concerned","relieved","happy","sad","angry"]),when:z.string().max(400)}).strict()).max(40).optional(),
     responseLanguage: z.enum(["en", "ja"]).optional(),
     responseLength: z.enum(["short", "scene"]).optional(),
     narrative: z.object({ definition: narrativeDefinitionSchema, state: narrativeStateSchema }).strict().optional(),
@@ -88,7 +89,7 @@ const tokenCount = z.number().int().nonnegative().optional();
 export const runtimeUsageSchema = z.object({ inputTokens: tokenCount, outputTokens: tokenCount, cacheReadInputTokens: tokenCount, cacheWriteInputTokens: tokenCount, reasoningTokens: tokenCount, bedrockMs: z.number().int().nonnegative(),
   agentCoreHeadersMs: tokenCount, agentCoreBodyMs: tokenCount, agentCoreStopMs: tokenCount, refereeMs: tokenCount, interpretationMs: tokenCount, graphMs: tokenCount, firstContentMs: tokenCount, serviceFirstContentMs: tokenCount, metadataMs: tokenCount,
 }).strict();
-export const runtimeReplyWithUsageSchema = runtimeReplySchema.extend({ usage: runtimeUsageSchema.optional(), imageKey: z.enum(["neutral", "focused", "concerned", "relieved"]).optional() });
+export const runtimeReplyWithUsageSchema = runtimeReplySchema.extend({ usage: runtimeUsageSchema.optional(), imageKey: z.enum(["neutral", "focused", "concerned", "relieved", "happy", "sad", "angry"]).optional() });
 export type RuntimeModel = (
   context: z.infer<typeof runtimeContextSchema>,
   signal?: AbortSignal,

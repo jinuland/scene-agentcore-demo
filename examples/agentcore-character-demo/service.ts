@@ -1,3 +1,6 @@
+import { creatorApi } from "./creator-api";
+import { storyFromDocument, pinStory } from "./creator";
+import { selectTurnMedia, type CreatorMediaStore } from "./creator-media";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -60,16 +63,17 @@ const exposeEpisode = (episode: Episode, story: Story, locale: SceneLocale) => (
   id: episode.id,
   version: episode.turns.length,
   story: episode.story,
+  ...(story.creator ? {storyView:publicStory(story)} : {}),
   memoryCount: episode.memories.length,
   ...(episode.narrativeUpgrade ? { narrativeUpgrade: episode.narrativeUpgrade } : {}),
   ...(story.narrative ? { narrative: presentNarrative(story.narrative, episode.narrative ?? initialNarrativeState(story.narrative), { locale, presentation: story.narrativePresentation, turnOffset: episode.narrativeStartedAtTurn }) } : {}),
   stats: { trust: trustValue(episode), max: trustMax, level: trustLabel(trustValue(episode), locale) },
   status: storyStatus(story, episode),
-  turns: episode.turns.map(({ id, input, text, mood, suggestions, mode, timing, usage, responseLanguage, responseLength, trustQuote }) => {
+  turns: episode.turns.map(({ id, input, text, mood, suggestions, mode, timing, usage, responseLanguage, responseLength, trustQuote, speaker, media }) => {
     const dialogue = presentBeatLabels(stripSpeakerLabel(text, story.character));
     const beats = hasSceneDialogue(dialogue) ? storyBeats(dialogue).filter(beat => /\p{L}/u.test(beat.text))
       : [{ kind: "speech", text: missingDialogue[locale] }];
-    return { id, input, beats, mood, suggestions, mode, timing, usage, responseLanguage, responseLength, trustQuote };
+    return { id, input, beats, mood, suggestions, mode, timing, usage, responseLanguage, responseLength, trustQuote, speaker, media };
   }),
 });
 export function makeContext(story: Story, episode: Episode, mode: Context["dialogueMode"], message: string, locale: SceneLocale, responseLength: Context["responseLength"] = "scene"): Context {
@@ -81,6 +85,7 @@ export function makeContext(story: Story, episode: Episode, mode: Context["dialo
   const policy = [
     "인물 설정과 공식 사실을 지키면서 플레이어가 다음 행동을 결정할 수 있게 답한다. 설정에 없는 결과를 확정하지 않는다.",
     ...(locale !== "ko" && mode === "gpt6luna" ? [] : [narrationPolicy]),
+    ...(story.creator ? ["등록한 세계관과 현재 장면에 명시된 인물·능력·물건만 사용한다. 설정에 없는 인물 이름·호출 부호·새 임무·숨겨진 조직을 만들어 전개를 바꾸지 않는다. 이전 생성문이 이를 어겼더라도 현재 확정 설정을 우선한다."] : []),
     ...(story.trustWhen && !story.narrative ? [`현재 관계는 ‘${trustLabel(trustValue(episode), locale)}’다. 말투에만 참고하고 수치나 등급명을 직접 말하지 않는다.`] : []),
     ...(cards.length && locale === "ko" ? ["지금 상황에 명확히 맞는 이미지가 있으면 응답의 첫 줄에 [표정:키]를 쓴다. 과거·가정·단순 언급에는 고르지 않는다."] : []),
     ...(cards.length ? [`승인 카드: ${JSON.stringify(cards)}`] : []),
@@ -118,6 +123,7 @@ type ServiceOptions = {
   accessCode?: string;
   publicAccess?: boolean;
   chargeTurn?: () => Promise<void>;
+  mediaStore?: CreatorMediaStore;
 };
 
 function signedSession(id: string, expiry: number, secret: string) {
@@ -130,15 +136,15 @@ function digestMatches(left: string, right: string) {
   return timingSafeEqual(digest(left), digest(right));
 }
 
-async function requestBody(request: Request) {
+async function requestBody(request: Request, maxBytes = 8192) {
   if (request.headers.get("content-type")?.split(";")[0] !== "application/json") throw new StudioError(415, "JSON 요청이 필요합니다.");
   const bytes = await request.arrayBuffer();
-  if (bytes.byteLength > 8192) throw new StudioError(413, "입력 내용이 너무 깁니다.");
+  if (bytes.byteLength > maxBytes) throw new StudioError(413, "입력 내용이 너무 깁니다.");
   try { return JSON.parse(Buffer.from(bytes).toString("utf8")); }
   catch { throw new StudioError(400, "요청을 읽을 수 없습니다."); }
 }
 
-export function createSceneService({ store, web, aws, accessCode, publicAccess = false, chargeTurn }: ServiceOptions) {
+export function createSceneService({ store, web, aws, accessCode, publicAccess = false, chargeTurn, mediaStore }: ServiceOptions) {
   const models = enabledDialogueModes();
   const defaultModel = models.find(model => model.id === "sonnet55")?.id ?? models[0]?.id;
   const recentScenes = new Map<string, Buffer>();
@@ -161,7 +167,7 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
       if (request.method === "POST" && request.headers.get("origin") !== origin) throw new StudioError(403, "이 데모 화면에서 다시 시도해 주세요.");
       if (["GET", "HEAD"].includes(request.method) && !path.startsWith("/api/")) {
         const file = path === "/" ? "/index.html" : path;
-        if (!/^\/(?:index\.html|app\.js|i18n\.js|styles\.css|icon\.svg|art\/[a-z-]+\.webp)$/.test(file)) throw new StudioError(404, "페이지를 찾지 못했습니다.");
+        if (!/^\/(?:index\.html|app\.js|creator\.js|creator\.css|i18n\.js|styles\.css|icon\.svg|art\/[a-z-]+\.webp)$/.test(file)) throw new StudioError(404, "페이지를 찾지 못했습니다.");
         let data = recentScenes.get(file);
         if (!data) {
           try { data = readFileSync(resolve(web, "." + file)); }
@@ -202,9 +208,11 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
         return story && localizeStory(withWorldEngine(story), locale);
       };
 
+      const creatorResponse=await creatorApi({path,request,owner,store,media:mediaStore,builtins:stories,body:requestBody,json,publicStory});
+      if(creatorResponse)return creatorResponse;
       if (request.method === "GET" && path === "/api/library") {
         const [drafts, sessions] = await Promise.all([store.drafts(owner), store.sessions(owner)]);
-        return json(200, { stories: [...stories, ...drafts].map(story => publicStory(localizeStory(withWorldEngine(story), locale))), sessions, models, defaultModel, runtime: !!aws.arn, streaming: true, pipelineVersion: "scene-stream/10" });
+        return json(200, { stories: [...stories, ...drafts.filter(s=>s.creator?.status!=="draft")].map(story => publicStory(localizeStory(withWorldEngine(story), locale))), sessions, models, defaultModel, runtime: !!aws.arn, streaming: true, pipelineVersion: "scene-stream/11" });
       }
       if (request.method === "POST" && path === "/api/stories") {
         const story = draftStory(`custom-${randomUUID()}`, draftSchema.parse(await requestBody(request)));
@@ -212,10 +220,12 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
         return json(201, publicStory(localizeStory(story, locale)));
       }
       if (request.method === "POST" && path === "/api/episodes") {
-        const { story: slug } = z.object({ story: idSchema }).strict().parse(await requestBody(request));
-        const story = await readStory(slug);
+        const { story: slug, startId } = z.object({ story: idSchema, startId: z.string().max(64).optional() }).strict().parse(await requestBody(request));
+        let story = await readStory(slug);
+        if(story?.creator?.status === "draft") throw new StudioError(422,"초안은 제작 화면에서 테스트해 주세요.");
+        if(story?.creator?.document) story={...storyFromDocument(story.creator.document,story.id,startId),creator:story.creator};
         if (!story) throw new StudioError(404, "작품을 찾지 못했습니다.");
-        const episode: Episode = { id: randomUUID(), story: slug, turns: [], memories: [], ...(story.narrative ? { narrative: initialNarrativeState(story.narrative), narrativeDefinition: structuredClone(story.narrative) } : {}) };
+        const episode: Episode = { id: randomUUID(), story: slug, turns: [], memories: [], ...(story.creator ? {storySnapshot:pinStory(story)} : {}), ...(story.narrative ? { narrative: initialNarrativeState(story.narrative), narrativeDefinition: structuredClone(story.narrative) } : {}) };
         await store.putEpisode(owner, episode);
         return json(201, exposeEpisode(episode, story, locale));
       }
@@ -227,7 +237,7 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
       }
       let current = await store.findEpisode(owner, route[1]);
       if (!current) throw new StudioError(404, "회차를 찾지 못했습니다.");
-      const sourceStory = await readStory(current.story);
+      const sourceStory = current.storySnapshot ?? await readStory(current.story);
       if (sourceStory) current = adoptWorldEngine(current, sourceStory);
       const story = sourceStory && { ...sourceStory, narrativePresentation: sourceStory.narrative, ...(current.narrativeDefinition ? { narrative: current.narrativeDefinition } : {}) };
       if (!story) throw new StudioError(404, "작품을 찾지 못했습니다.");
@@ -258,7 +268,7 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
         let serviceFirstContentMs: number | undefined;
         const signal = AbortSignal.any([request.signal, AbortSignal.timeout(110000)]);
         const output = await invokeCloudRuntime(makeContext(story, current, mode, message, locale, responseLength), aws, signal, {
-          episodeScope: episodeRuntimeScope({ id: current.id, projectId: `scene-demo/${story.id}`, releaseId: "demo-stream-v10", ownerHash: owner }),
+          episodeScope: episodeRuntimeScope({ id: current.id, projectId: `scene-demo/${story.id}`, releaseId: "demo-stream-v11", ownerHash: owner }),
           ...(onTextDelta ? { onTextDelta: (text: string) => { serviceFirstContentMs ??= Math.round(performance.now() - started); onTextDelta(text); } } : {}),
         });
         signal.throwIfAborted();
@@ -269,10 +279,11 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
         const hasTrust = verifyDialogueMatches(trustRules(story, current), message, matches).includes("trust");
         const turn: Turn = {
           id: requestId ?? randomUUID(), input: message, text, responseLength,
-          mood: output.imageKey && story.cards[output.imageKey] ? output.imageKey : parsed.mood && story.cards[parsed.mood] ? parsed.mood : "neutral",
+          mood: output.imageKey ? output.imageKey : parsed.mood && story.cards[parsed.mood] ? parsed.mood : "neutral",
           suggestions: [...new Set((output.suggestions ?? []).map(s => s.trim()).filter(hasSceneDialogue))],
           ...(locale !== "ko" && { responseLanguage: locale }),
           ...(output.usage ? { usage: { ...output.usage, ...(serviceFirstContentMs === undefined ? {} : { serviceFirstContentMs }) } } : {}),
+          speaker: story.narrative?.characters?.find(c=>c.id===story.narrative!.scenes.find(s=>s.id===output.narrativeState?.scene)?.speaker)?.name ?? story.character,
           mode, timing: Math.round(performance.now() - started),
           ...(hasTrust ? { trustQuote: matches.find(match => match.id === "trust" && message.includes(match.quote))!.quote } : {}),
         };
@@ -281,6 +292,7 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
           try { current.narrative = verifiedNarrativeState(story.narrative, previous, message, output.narrativeState); }
           catch { throw new StudioError(502, "이야기 진행 상태를 확인하지 못했습니다. 다시 시도해 주세요."); }
         }
+        turn.media = selectTurnMedia(story,current,turn.mood);
         current.turns.push(turn);
         const remembered = verifiedCandidates(message, turn.text, output.memories).map(item => ({
           id: randomUUID(), kind: item.kind, subject: item.source === "user" ? "player" : "character",

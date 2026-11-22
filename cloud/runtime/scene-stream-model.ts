@@ -22,11 +22,12 @@ export function sceneStreamPrompt(context: Parameters<RuntimeModel>[0]) {
     : length === "short" ? (context.responseLanguage === "en" ? "Keep this reply concise, about 50–100 English words." : context.responseLanguage === "ja" ? "今回は150〜300字程度で簡潔に答える。" : "이번에는 한국어 본문 150~300자 정도로 간결하게 답한다.") : "짧게 답할 상황은 더 짧아도 된다.";
   return [
     "당신은 캐릭터 챗의 한 인물이다. 현재 인물의 말투·관점·알고 있는 사실로 사용자의 마지막 말에 직접 반응한다.",
-    `대사와 필요한 장면·행동만 ${language}로 쓴다. JSON, 도구 호출, INFO창, 이름표, 표정 태그, 메타 설명과 내부 추론은 출력하지 않는다.`,
+    `대사와 필요한 장면·행동만 ${language}로 쓴다. JSON, 도구 호출, INFO창, 이름표, 메타 설명과 내부 추론은 출력하지 않는다.`,
     "필요할 때만 [행동]과 [대사] 태그로 구분한다. 설정 설명과 같은 질문을 반복하지 않고, 실제로 달라진 상황에 맞는 반응이나 작은 다음 행동을 제시한다.",
     "이번 발언이 허용된 행동의 실행을 명시하면 그 행동에 대한 인물의 반응과 관찰 가능한 작은 결과까지 이어간다. 새 선택이 필요하지 않은데 준비나 동의 질문만 반복하며 멈추지 않는다. 근거 없이 합격·능력·문제 해결을 확정하지 않는다.",
     "플레이어의 새 말·행동·감정·능력을 대신 확정하지 않는다. 사용자 주장과 희망을 확정된 세계 사실로 바꾸지 않는다. 현재 사건·장소·시간·인물의 소통 방식·일정·미공개 사실의 범위를 지킨다.",
     "기억은 발언한 사람의 주장이다. 근거가 없으면 모른다고 자연스럽게 말한다. 현재 상태의 확정 사건은 이미 반영됐으므로 다시 동의를 요구하거나 도입으로 되돌리지 않는다.",
+    ...(context.sceneExpressions?.length ? ["승인된 미디어 상황이 지금 작성하는 인물의 감정에 명확히 맞으면 첫 줄에 [표정:감정키] 하나만 쓴다. 감정키는 아래 후보에서만 고른다. 과거·가정·사용자 감정만으로 고르지 않는다. 애매하면 표정 태그를 쓰지 않는다. 이 태그 뒤에는 즉시 실제 대사·행동을 이어 쓴다. 승인 미디어: "+JSON.stringify(context.sceneExpressions)] : ["표정 태그는 출력하지 않는다."]),
     context.policy,
     JSON.stringify({ character: context.character, scene: context.scene, facts: context.visibleFacts,
       boundaries: context.boundaries, memories: context.memories, recent: context.recent }),
@@ -43,10 +44,18 @@ export const sceneStreamModel: RuntimeModel = async (context, signal, execution)
   const start = performance.now();
   const system = sceneStreamPrompt(context);
   const deadline = AbortSignal.any([AbortSignal.timeout(65000), ...(signal ? [signal] : [])]);
-  let text = "", firstContentMs: number | undefined, stop: string | undefined;
+  let text = "", prefix = "", prefixDone = false, selectedMood: "neutral"|"focused"|"concerned"|"relieved"|"happy"|"sad"|"angry"|undefined, firstContentMs: number | undefined, stop: string | undefined;
   let usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number; cacheReadInputTokens?: number } = {};
   const delta = async (value: string) => {
     if (!value) return;
+    if (!prefixDone) {
+      prefix += value;
+      if (prefix.length < 80 && ("[표정:".startsWith(prefix) || prefix.startsWith("[표정:") && !prefix.includes("]"))) return;
+      const tag=/^\[표정:([^\]\n]{1,40})\]\s*/u.exec(prefix);
+      if(tag && context.sceneExpressions?.some(m=>m.emotion===tag[1])) selectedMood=tag[1] as typeof selectedMood;
+      value=tag?prefix.slice(tag[0].length):prefix; prefixDone=true;
+      if(!value)return;
+    }
     firstContentMs ??= Math.round(performance.now() - start);
     text += value;
     if (text.length > 6000) throw new StudioError(502, "응답이 너무 깁니다.");
@@ -105,6 +114,6 @@ export const sceneStreamModel: RuntimeModel = async (context, signal, execution)
   }
   if (!["end_turn", "stop", "stop_sequence"].includes(stop ?? "") || !hasSceneDialogue(text))
     throw new StudioError(422, "모델이 대사를 완성하지 못했습니다. 저장하지 않았습니다.");
-  return { text: text.trim(), usedFactIds: [], memories: [],
+  return { text: text.trim(), ...(selectedMood ? {imageKey:selectedMood} : {}), usedFactIds: [], memories: [],
     ...(context.reportUsage ? { usage: { ...usage, bedrockMs: Math.round(performance.now() - start), firstContentMs } } : {}) };
 };

@@ -125,3 +125,9 @@ Run `npm test` in the deployment package to check gates, counter bounds, all thr
 Choose Scene · longer (default, a Korean target of550–750 visible characters) or Chat · shorter. Length is advisory and varies by model. The [Grok4.3/Sonnet5.5 length, latency and quality study](docs/length-quality-benchmark-20261122.md) includes identical-prompt failures, calibrated comparisons and raw synthetic QA outputs. Sonnet5.5 remains the story-focused default.
 
 Record-world v2 treats another-coffee plans and nightly goodbyes as nonterminal milestones. Continue in the same episode through café arrival, locker B-12 records, and an explicit relationship decision. Existing v1 transcripts, choices and time survive the targeted upgrade; GET is read-only and the next successful turn commits the upgraded definition. Other stories retain their pinned rules.
+
+## Story creator and editing existing works
+
+The creator covers profile, world and cast, multiple starts, custom metrics and INFO, scenes/actions/transitions, conditional media, lore, endings, and testing/publication. Import a built-in or your own work, save an editable owner-scoped draft, and publish a new immutable version. Existing episodes pin their selected start and story snapshot. Preview rules without an LLM or open a real test chat.
+
+See the [creator guide](docs/creator-guide.md) (Korean) for the UI, APIs, limits and persistence. Uploaded images use a new private S3 bucket with an eight-day lifecycle and owner-scoped authenticated reads. GPU generation remains disabled and adds no GPU resource. The ZIP includes source and built-in examples; it excludes personal drafts, uploads, sessions and conversations. Authoring guidance is Korean; the existing English and Japanese play dialogue settings remain available.

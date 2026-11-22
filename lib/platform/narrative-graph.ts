@@ -10,12 +10,14 @@ export const narrativeDefinitionSchema = z.object({
   summary: z.string().max(1600).optional(),
   clockStyle: z.enum(["calendar", "elapsed"]).optional(), clockLabel: z.string().max(80).optional(),
   translations: z.object({ en: z.record(z.string(), z.string()).optional(), ja: z.record(z.string(), z.string()).optional() }).strict().optional(),
+  characters: z.array(z.object({ id, name: z.string().min(1).max(80), role: z.string().max(300), voice: z.string().max(600), description: z.string().max(1200), appearance: z.string().max(600) }).strict()).max(12).optional(),
+  media: z.array(z.object({ id, emotion: z.enum(["neutral", "focused", "concerned", "relieved", "happy", "sad", "angry"]), when: z.string().max(400), scenes: z.array(id).max(24), conditions: z.array(condition).max(8), eventId: id.optional(), characterId: id.optional(), priority: z.number().int().min(0).max(100), once: z.boolean(), cooldown: z.number().int().min(0).max(200) }).strict()).max(40).optional(),
   statusFields: z.array(z.object({ id, label: z.string().max(80), cases: z.array(z.object({ text: z.string().max(300), conditions: z.array(condition).max(8) }).strict()).min(1).max(8) }).strict()).max(12).optional(),
   plotThreads: z.array(z.object({ id, title: z.string().max(120), description: z.string().max(500), activeWhen: z.array(condition).max(8), resolveWhen: z.array(condition).min(1).max(8), resolution: z.string().max(300).optional() }).strict()).max(12).optional(),
   milestones: z.array(z.object({ id, title: z.string().max(120), text: z.string().max(1200), conditions: z.array(condition).min(1).max(8) }).strict()).max(16).optional(),
-  counters: z.array(z.object({ id, label: z.string().max(80), initial: z.number().finite(), min: z.number().finite(), max: z.number().finite(), unit: z.string().max(12), visible: z.boolean() }).strict()).max(16),
-  facts: z.array(z.object({ id, text: z.string().max(1600), conditions: z.array(condition).max(8) }).strict()).max(40),
-  scenes: z.array(z.object({ id, title: z.string().max(120), location: z.string().max(120), opening: z.string().max(1800), objective: z.string().max(300), minTurns: z.number().int().min(0).max(30), suggestions: z.array(z.string().max(150)).max(3), choices: z.array(z.object({ id, text: z.string().max(180), conditions: z.array(condition).max(8), unless: z.array(condition).max(8).optional(), actionId: id.optional(), transitionId: id.optional(), priority: z.number().optional() }).strict()).max(12).optional(), mood: z.enum(["neutral", "focused", "concerned", "relieved"]) }).strict()).min(1).max(24),
+  counters: z.array(z.object({ id, label: z.string().max(80), initial: z.number().finite(), min: z.number().finite(), max: z.number().finite(), unit: z.string().max(12), visible: z.boolean(), values: z.array(z.string().max(80)).min(2).max(20).optional() }).strict()).max(16),
+  facts: z.array(z.object({ id, text: z.string().max(1600), conditions: z.array(condition).max(8), keywords: z.array(z.string().min(1).max(60)).max(12).optional() }).strict()).max(40),
+  scenes: z.array(z.object({ id, speaker: id.optional(), title: z.string().max(120), location: z.string().max(120), opening: z.string().max(1800), objective: z.string().max(300), minTurns: z.number().int().min(0).max(30), suggestions: z.array(z.string().max(150)).max(3), choices: z.array(z.object({ id, text: z.string().max(180), conditions: z.array(condition).max(8), unless: z.array(condition).max(8).optional(), actionId: id.optional(), transitionId: id.optional(), priority: z.number().optional() }).strict()).max(12).optional(), mood: z.enum(["neutral", "focused", "concerned", "relieved"]) }).strict()).min(1).max(24),
   events: z.array(z.object({ id, when: z.string().max(500), scenes: z.array(id).max(24), once: z.boolean(), opensTransition: id.optional(), opensTransitions: z.array(id).max(24).optional(), label: z.string().max(100).optional(), result: z.string().max(500).optional(), conditions: z.array(condition).max(8).optional(), effects: z.array(z.object({ counter: id, delta: z.number().finite() }).strict()).max(8), minutes: z.number().int().min(0).max(1440) }).strict()).max(32),
   transitions: z.array(z.object({ id, from: id, to: id, label: z.string().max(150), when: z.string().max(500), conditions: z.array(condition).max(8), minutes: z.number().int().min(0).max(1440).optional() }).strict()).max(40),
   endings: z.array(z.object({ id, title: z.string().max(120), text: z.string().max(1200), scenes: z.array(id).max(24), conditions: z.array(condition).min(1).max(8), priority: z.number().int().min(0).max(100) }).strict()).min(1).max(10),
@@ -61,10 +63,18 @@ export function compileNarrative(definition: NarrativeDefinition) {
   const counters = new Set([...builtinCounters, ...definition.counters.map(counter => counter.id)]);
   for (const counter of definition.counters) {
     if (builtinCounters.has(counter.id) || counter.min > counter.max || counter.initial < counter.min || counter.initial > counter.max) throw Error("Invalid narrative counter");
+    if (counter.values && (counter.min !== 0 || counter.max !== counter.values.length-1 || !Number.isInteger(counter.initial))) throw Error("Invalid enum counter");
     node("counter/" + counter.id, "Counter", counter);
   }
   for (const name of builtinCounters) node("counter/" + name, "Counter", { id: name });
-  for (const scene of definition.scenes) node("scene/" + scene.id, "Scene", scene);
+  for (const character of definition.characters ?? []) node("character/" + character.id, "Character", character);
+  for (const scene of definition.scenes) {
+    node("scene/" + scene.id, "Scene", scene);
+    if (scene.speaker) {
+      if (!definition.characters?.some(c=>c.id === scene.speaker)) throw Error("Unknown scene speaker");
+      graph.addDirectedEdge("scene/"+scene.id,"character/"+scene.speaker,{kind:"SPEAKS"});
+    }
+  }
   if (!graph.hasNode("scene/" + definition.startScene)) throw Error("Missing narrative opening");
   const gates = (key: string, conditions: z.infer<typeof condition>[]) => {
     for (const [index, gate] of conditions.entries()) {
@@ -100,6 +110,15 @@ export function compileNarrative(definition: NarrativeDefinition) {
       if (!transition || !event.scenes.includes(transition.from)) throw Error("Invalid authored action transition");
       graph.addDirectedEdge("event/" + event.id, "transition/" + transition.id, { kind: "REQUESTS_TRANSITION" });
     }
+  }
+  for (const media of definition.media ?? []) {
+    const key = "media/"+media.id; node(key,"Media",media); gates(key,media.conditions);
+    for (const scene of media.scenes) {
+      if (!graph.hasNode("scene/"+scene)) throw Error("Unknown media scene");
+      graph.addDirectedEdge("scene/"+scene,key,{kind:"SHOWS"});
+    }
+    if (media.characterId && !graph.hasNode("character/"+media.characterId)) throw Error("Unknown media character");
+    if (media.eventId && !graph.hasNode("event/"+media.eventId)) throw Error("Unknown media event");
   }
   for (const milestone of definition.milestones ?? []) {
     const key = "milestone/" + milestone.id;
@@ -226,7 +245,7 @@ export function publicNarrative(definition: NarrativeDefinition, state: Narrativ
     sceneId: scene.id, scene: scene.title, location: scene.location, objective: scene.objective, turns: state.turns, sceneTurns: state.sceneTurns,
     day: 1 + Math.floor((Number(definition.startTime.slice(11, 13)) * 60 + Number(definition.startTime.slice(14, 16)) + state.elapsedMinutes) / 1440),
     time: new Date(new Date(definition.startTime).getTime() + state.elapsedMinutes * 60000).toISOString(),
-    counters: definition.counters.filter(counter => counter.visible).map(counter => ({ id: counter.id, label: counter.label, value: state.counters[counter.id], max: counter.max, unit: counter.unit })),
+    counters: definition.counters.filter(counter => counter.visible).map(counter => ({ id: counter.id, label: counter.label, value: state.counters[counter.id], min: counter.min, max: counter.max, unit: counter.unit, ...(counter.values ? {displayValue: counter.values[state.counters[counter.id]]} : {}) })),
     gates: definition.transitions.filter(transition => transition.from === scene.id).map(transition => ({ id: transition.id, label: transition.label,
       ready: state.sceneTurns >= scene.minTurns && gatePasses(graph, "transition/" + transition.id),
       minimumTurns: scene.minTurns,
@@ -236,4 +255,10 @@ export function publicNarrative(definition: NarrativeDefinition, state: Narrativ
     suggestions: scene.suggestions, ending: ending && { id: ending.id, title: ending.title, text: ending.text }, endingCount: definition.endings.length,
     graph: { nodes: graph.order, edges: graph.size },
   };
+}
+
+/** Candidate media use the same canonical gates as state and story transitions. */
+export function eligibleNarrativeMedia(definition: NarrativeDefinition, state: NarrativeState) {
+  const graph=narrativeGraph(definition,state);
+  return (definition.media ?? []).filter(m=>(!m.scenes.length || m.scenes.includes(state.scene)) && gatePasses(graph,"media/"+m.id) && (!m.eventId || state.events.some(e=>e.id===m.eventId && e.turn===state.turns))).sort((a,b)=>b.priority-a.priority || a.id.localeCompare(b.id));
 }
