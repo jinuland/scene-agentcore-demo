@@ -102,7 +102,7 @@ function discover() {
   const genres = ["전체", ...new Set(library.stories.map(story => story.genre))];
   const filtered = filter === "전체" ? visibleStories : visibleStories.filter(s => s.genre === filter);
   const cards = filtered.map(story => '<button class="card story-' + esc(story.id) + '" data-story="' + esc(story.id) + '"><div class="thumb">' +
-    image(story.cover, "") + badge(t(story.custom ? "내 작품" : story.genre)) + '</div><div class="card-copy"><h3>' + esc(story.title) + '</h3><p>' + esc(story.tagline) + '</p></div></button>').join("");
+    image(story.cover, "") + badge(t(story.public ? "공개 작품" : story.custom ? "내 작품" : story.genre)) + '</div><div class="card-copy"><h3>' + esc(story.title) + '</h3><p>' + esc(story.tagline) + '</p></div></button>').join("");
   setContent('<div class="container"><div class="topline"><div><p class="kicker">' + t("STORY LIBRARY") + '</p><h2 class="section-title">' + t("작품 탐색") + '</h2></div>' +
     '<span class="live">' + (library.runtime ? '<i></i> ' + t("AgentCore 연결 설정됨") : t("AgentCore 설정 필요")) + '</span></div>' +
     '<section class="hero">' + image(feature.cover, "", "hero-art", true) + '<div class="hero-copy">' +
@@ -123,7 +123,8 @@ function detail(story) {
     '<div class="actions">' + (last ? button("btn primary", 'data-episode="' + last.id + '"', t("이어하기"), "play") : '') +
     button(last ? "btn" : "btn primary", 'data-start="' + esc(story.id) + '"', t(last ? "새 회차 시작" : "대화 시작"), "arrow") +
     (story.previewTurns?.length ? button("btn", 'data-story-preview="open" aria-controls="story-preview"', t("예시 대화 보기"), "chatIcon") : "") +
-    button('btn','data-edit-story="'+esc(story.id)+'"','편집용으로 불러오기','editIcon') +
+    (story.hasTemplate?button('btn','data-edit-story="template:'+esc(story.id)+'"','공개 초안 불러오기','editIcon'):'') +
+    (!story.public?button('btn','data-edit-story="'+esc(story.id)+'"','편집용으로 불러오기','editIcon'):'') +
     (story.starts?.length ? '<label>시작 설정<select id="play-start">'+story.starts.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.title)+'</option>').join('')+'</select></label>' : '') +
     '</div>' + prologue(story, true) + storyPreview(story) + '</div>');
 }
@@ -167,7 +168,7 @@ function shelf() {
 function craft(sourceId) {
   setContent('<div id="creator-host"><p class="loading">작품 편집기를 불러오는 중입니다.</p></div>');
   void mountCreator(document.querySelector('#creator-host'),{api,library,sourceId,
-    onPublished:story=>{library.stories=[...library.stories.filter(s=>s.id!==story.id),story];message('작품을 새 버전으로 등록했습니다.');},
+    onPublished:story=>{library.stories=[...library.stories.filter(s=>s.id!==story.id),story];message(story.public?'작품을 누구나 볼 수 있게 공개 게시했습니다.':'작품을 새 버전으로 등록했습니다.');},
     onTest:result=>{library.stories.push(result.story);go('chat',result.episodeId);},
   });
 }

@@ -1,3 +1,4 @@
+import {publishPublicStory,publishPublicTemplate,importPublicTemplate} from './public-stories';
 import{publicImageWorkflow}from'./creator-image-workflow';
 import{creatorMcpServices}from'./creator-mcp-services';
 import littlePrinceExample from'./examples/little-prince.json';
@@ -24,7 +25,7 @@ export async function creatorApi(args:{path:string;request:Request;owner:string;
  if(method==='GET'&&path==='/api/creator/examples/little-prince')return json(200,{document:creatorDocumentSchema.parse(littlePrinceExample)});
  if(method==='GET'&&path==='/api/creator/template')return json(200,{document:blankCreator()});
  if(method==='GET'&&path==='/api/creator'){
-  const own=await store.drafts(owner);return json(200,{drafts:own.filter(s=>s.creator?.status==='draft').map(s=>({id:s.id,title:s.title,revision:s.creator!.revision})),sources:[...builtins,...own.filter(s=>s.creator?.status!=='draft'&&!s.creator?.preview)].map(s=>({id:s.id,title:s.title,version:s.narrative?.version??1,custom:!!s.custom})),gpu:{enabled:!!args.gpu,model:creatorImageModel.label,message:args.gpu?'Qwen-Image-2.1 · 정면 기준으로 캐릭터 동일성을 유지하며 생성합니다.':'GPU 작업자를 연결하면 기준 이미지와 감정·상황 이미지를 생성할 수 있습니다.'}});
+  const own=await store.drafts(owner),templates=(await store.publicStories?.()??[]).filter(s=>s.publicTemplate);return json(200,{drafts:own.filter(s=>s.creator?.status==='draft').map(s=>({id:s.id,title:s.title,revision:s.creator!.revision})),sources:[...builtins,...own.filter(s=>s.creator?.status!=='draft'&&!s.creator?.preview)].map(s=>({id:s.id,title:s.title,version:s.narrative?.version??1,custom:!!s.custom})).concat(templates.map(s=>({id:'template:'+s.id,title:'공개 초안 · '+s.title,version:s.narrative?.version??1,custom:true}))),gpu:{enabled:!!args.gpu,model:creatorImageModel.label,message:args.gpu?'Qwen-Image-2.1 · 정면 기준으로 캐릭터 동일성을 유지하며 생성합니다.':'GPU 작업자를 연결하면 기준 이미지와 감정·상황 이미지를 생성할 수 있습니다.'}});
  }
  if(path==='/api/creator/image-workflows'&&method==='POST'){
   if(!args.gpu?.createWorkflow)throw new StudioError(503,'이미지 작업자가 연결되어 있지 않습니다.');const input=z.object({requestId:z.string().uuid(),document:creatorDocumentSchema}).strict().parse(await body(request,350000));
@@ -44,11 +45,16 @@ export async function creatorApi(args:{path:string;request:Request;owner:string;
   else throw new StudioError(405,'지원하지 않는 요청입니다.');
   return json(200,publicAuthorJob(job,await args.authorJobs.tasks(owner,job.id)));
  }
+ const publicTemplate=/^\/api\/creator\/templates\/(custom-[0-9a-f-]{36})$/u.exec(path);
+ if(publicTemplate&&method==='GET'){const work=await store.findPublicStory?.(publicTemplate[1]);if(!work?.publicTemplate)throw new StudioError(404,'공개 초안을 찾지 못했습니다.');return json(200,{document:work.publicTemplate,sourceId:work.id,publicTemplate:true});}
  const source=/^\/api\/creator\/sources\/([a-z0-9-]{1,64})$/u.exec(path);
  if(source&&method==='GET'){const story=builtins.find(s=>s.id===source[1])??await store.findDraft(owner,source[1]);if(!story)throw new StudioError(404,"작품을 찾지 못했습니다.");return json(200,{document:documentForStory(story),...(story.creator?.status==='draft'?{id:story.id,revision:story.creator.revision}:{sourceId:story.id})});}
  const gpuJob=/^\/api\/creator\/gpu\/([0-9a-f-]{36})$/u.exec(path);
  if(gpuJob&&method==='GET'){const job=await args.gpu?.get(owner,gpuJob[1]);if(!job)throw new StudioError(404,'생성 작업을 찾지 못했습니다.');return json(200,publicGpuJob(job));}
  if(method!=='POST')throw new StudioError(405,"지원하지 않는 요청입니다.");
+ if(path==='/api/creator/public-templates'){const input=z.object({storyId:draftId}).strict().parse(await body(request));return json(201,{document:await publishPublicTemplate(store,media,owner,input.storyId)});}
+ if(path==='/api/creator/import-template'){const input=z.object({storyId:draftId}).strict().parse(await body(request));const document=await importPublicTemplate(store,media,owner,input.storyId),id='custom-'+randomUUID(),story=storyFromDocument(document,id);story.creator={status:'draft',revision:1,sourceId:input.storyId,document};await store.putDraft(owner,story);return json(201,{id,revision:1,sourceId:input.storyId,document,imported:true});}
+ if(path==='/api/creator/publications'){const input=z.object({storyId:draftId}).strict().parse(await body(request));return json(201,{story:publicStory(await publishPublicStory(store,media,owner,input.storyId))});}
  if(path==='/api/creator/gpu'){
   if(!args.gpu||!media)throw new StudioError(503,'GPU 작업자가 연결되어 있지 않습니다.');const input=gpuRequestSchema.parse(await body(request,12000));
   const existing=await args.gpu.get(owner,input.requestId);if(!existing)await args.chargeGeneration?.();
@@ -92,7 +98,7 @@ export async function creatorApi(args:{path:string;request:Request;owner:string;
   return json(200,{state,narrative:presentNarrative(def,state),actions:state.ending?[]:availableNarrativeActions(def,state).map(a=>({id:a.id,label:a.label??a.id})),transitions:state.ending?[]:def.transitions.filter(t=>t.from===state.scene).map(t=>({id:t.id,label:t.label})),applied});
  }
  if(path==='/api/creator/publish'||path==='/api/creator/test'){
-  const data=z.object({draftId,revision:z.number().int().positive(),startId:z.string().optional()}).strict().parse(await body(request));
+  const data=z.object({draftId,revision:z.number().int().positive(),startId:z.string().optional(),visibility:z.enum(['private','public']).default('private')}).strict().parse(await body(request));
   const draft=await store.findDraft(owner,data.draftId);
   if(draft?.creator?.status!=='draft'||draft.creator.revision!==data.revision)throw new StudioError(409,"초안이 변경됐습니다. 저장 후 다시 시도해 주세요.");
   const checked=inspectCreator(draft.creator.document);if(!checked.ok)return json(422,{error:'작품의 필수 항목과 조건을 확인해 주세요.',...checked});
@@ -102,7 +108,7 @@ export async function creatorApi(args:{path:string;request:Request;owner:string;
   const story=storyFromDocument(doc,'custom-'+randomUUID(),data.startId);story.creator={status:'published',revision:1,sourceId:draft.creator.sourceId,document:doc,preview:path.endsWith('/test')};
   if(Buffer.byteLength(JSON.stringify(story))>240000)throw new StudioError(413,"작품 정의가 너무 큽니다. 설정을 줄여 주세요.");
   await store.putDraft(owner,story);
-  if(path.endsWith('/publish'))return json(201,{story:publicStory(story)});
+  if(path.endsWith('/publish'))return json(201,{story:publicStory(data.visibility==='public'?await publishPublicStory(store,media,owner,story.id):story)});
   const episode={id:randomUUID(),story:story.id,turns:[],memories:[],storySnapshot:pinStory(story),narrativeDefinition:story.narrative,narrative:initialNarrativeState(story.narrative!)};
   await store.putEpisode(owner,episode);return json(201,{story:publicStory(story),episodeId:episode.id});
  }

@@ -33,7 +33,7 @@ npm run deploy -- --profile customer-demo
 
 Skip the bootstrap step if CDK has already been bootstrapped in the target account and region. [AWS CDK bootstrapping](https://docs.aws.amazon.com/cdk/v2/guide/bootstrapping-env.html)
 
-After deployment, share **DemoUrl** from the CDK output or **outputs/scene-demo-stack.json**. CloudFront propagation can take a few minutes. Visitors can pick a story and start chatting as guests. A signed browser cookie keeps each guest's stories and episodes separate. The public demo allows 500 model turns per deployment each day, using the Seoul calendar date, and 24 turns per episode. DynamoDB uses a seven-day TTL for saved episodes and stories.
+After deployment, share **DemoUrl** from the CDK output or **outputs/scene-demo-stack.json**. CloudFront propagation can take a few minutes. Visitors can pick a story and start chatting as guests. A signed browser cookie keeps each guest's stories and episodes separate. The public demo allows 500 model turns per deployment each day, using the Seoul calendar date, and 24 turns per episode. Private episodes and drafts use a seven-day DynamoDB TTL. Published works and explicitly shared templates are retained in a separate catalog.
 
 To require an access code, deploy with this command.
 
@@ -140,3 +140,10 @@ In Create Story, load **어린왕자 예제** (Little Prince example), then star
 CDK adds an SQS work queue, a dead-letter queue and an authoring Lambda with reserved concurrency3. The search checkbox applies to every worker; each may call its MCP web-search tool when needed. Failed tasks can be retried individually, and identical completed task inputs can be reused after replanning. Each actual model/search call shares the daily quota. The selected GPU model is Qwen-Image-2.1, with a fixed front reference for subsequent views and expressions; see the creator guide for opt-in setup. See the [workflow, recovery, cost and limitations guide](docs/authoring-orchestration.md) in Korean.
 
 Creator Studio supports Opus 5.5 → Sonnet 5.5 or Grok 4.3 High → Medium. The selected pipeline also powers the MCP assistant, which can create characters and queue reference-based scene images. Choose General or Mature for the story tone. Qwen-Image-2.1 runs on an explicitly connected private GPU worker; GPU deployment instructions are in [the creator guide](docs/creator-guide.md). The source ZIP includes the worker and configuration, not model weights.
+
+## Anonymous public story publication
+
+The default `sceneAccess=public` deployment requires no login. The creator publish button adds an immutable work to the shared catalog. Drafts, author notes, reference sheets and personal conversations remain browser scoped. Only playable artwork is copied to the private S3 `published/` namespace and served through a publication-specific media allowlist. Public catalog entries and copied assets do not use the temporary retention policy applied to private demo data. Each visitor starts an independent anonymous episode.
+
+
+The Little Prince story includes a **Load public draft** button. Guests can load its scenes, conditions, stats, author brief, character references, and scene images into an independent editable draft without signing in. Importing copies the existing images and does not call a model or GPU. The shared original remains unchanged.

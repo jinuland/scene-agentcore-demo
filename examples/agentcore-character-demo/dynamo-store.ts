@@ -1,3 +1,4 @@
+import {PUBLIC_STORY_OWNER} from './public-stories';
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DeleteCommand, DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { StudioError } from "../../lib/studio/store";
@@ -41,11 +42,15 @@ export function dynamoStore(TableName: string): SceneStore {
     return rows.sort((a, b) => Number(b.updated) - Number(a.updated));
   };
   const put = async (owner: string, kind: "episode" | "draft", data: Episode | Story) => {
-    await db.send(new PutCommand({ TableName, Item: { ...key(owner, kind, data.id), data, rev: 0, updated: Date.now(), expires: ttl() },
+    await db.send(new PutCommand({ TableName, Item: { ...key(owner, kind, data.id), data, rev: 0, updated: Date.now(), ...(owner===PUBLIC_STORY_OWNER?{}:{expires:ttl()}) },
       ConditionExpression: "attribute_not_exists(#record)", ExpressionAttributeNames: { "#record": "record" },
     }));
   };
   return {
+    async putPublicTemplate(id,document){await db.send(new UpdateCommand({TableName,Key:key(PUBLIC_STORY_OWNER,'draft',id),UpdateExpression:'SET #d.#t = :document',ConditionExpression:'attribute_exists(#record) AND #d.#p = :yes AND attribute_not_exists(#d.#t)',ExpressionAttributeNames:{'#d':'data','#t':'publicTemplate','#p':'public','#record':'record'},ExpressionAttributeValues:{':document':document,':yes':true}}));},
+    findPublicStory:id=>read<Story>(key(PUBLIC_STORY_OWNER,"draft",id)),
+    async publicStories(){return(await list(PUBLIC_STORY_OWNER,"draft")).map(row=>row.data as Story);},
+    putPublicStory:story=>put(PUBLIC_STORY_OWNER,"draft",story),
     findDraft: (owner, id) => read<Story>(key(owner, "draft", id)),
     async drafts(owner) { return (await list(owner, "draft")).map(row => row.data as Story); },
     async putDraft(owner, draft, expectedRevision) {

@@ -11,6 +11,7 @@ export function sqliteStore(path: string): SceneStore {
   const database = new DatabaseSync(path);
   database.exec(`
     PRAGMA journal_mode=WAL;
+    CREATE TABLE IF NOT EXISTS public_story (id TEXT PRIMARY KEY, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS draft (id TEXT PRIMARY KEY, owner TEXT NOT NULL, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS episode (id TEXT PRIMARY KEY, owner TEXT NOT NULL, story TEXT NOT NULL, data TEXT NOT NULL, updated INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS demo_episodes_owner ON episode(owner, updated DESC);
@@ -40,6 +41,10 @@ export function sqliteStore(path: string): SceneStore {
   const locks = new Map<string, string>();
   const data = <T>(row?: { data?: unknown }) => typeof row?.data === "string" ? JSON.parse(row.data) as T : undefined;
   return {
+    async putPublicTemplate(id,document){const result=database.prepare("UPDATE public_story SET data=json_set(data,'$.publicTemplate',json(?)) WHERE id=? AND json_type(data,'$.publicTemplate') IS NULL").run(JSON.stringify(document),id);if(!result.changes)throw new StudioError(409,'공개 초안이 이미 저장되었거나 작품을 찾지 못했습니다.');},
+    async findPublicStory(id){return data<Story>(database.prepare("SELECT data FROM public_story WHERE id = ?").get(id));},
+    async publicStories(){return database.prepare("SELECT data FROM public_story ORDER BY rowid DESC").all().flatMap(row=>data<Story>(row)??[]);},
+    async putPublicStory(story){database.prepare("INSERT INTO public_story(id,data) VALUES (?,?)").run(story.id,JSON.stringify(story));},
     async findDraft(owner, id) {
       return data<Story>(database.prepare("SELECT data FROM draft WHERE id = ? AND owner = ?").get(id, owner));
     },

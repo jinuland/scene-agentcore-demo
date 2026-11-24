@@ -1,3 +1,4 @@
+import {publicMediaRoute,PUBLIC_STORY_OWNER,storyMediaPaths} from './public-stories';
 import type{AuthorJobStore,AuthorQueue}from'./creator-job-store';
 import type {CreatorGpuStore} from "./creator-gpu";
 import { creatorApi } from "./creator-api";
@@ -208,15 +209,17 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
       }
       const owner = createHash("sha256").update(session).digest("hex");
       const readStory = async (id: string) => {
-        const story = stories.find(story => story.id === id) ?? await store.findDraft(owner, id);
+        const story = stories.find(story => story.id === id) ?? await store.findPublicStory?.(id) ?? await store.findDraft(owner, id);
         return story && localizeStory(withWorldEngine(story), locale);
       };
 
+      const publicAsset=publicMediaRoute.exec(path);
+      if(publicAsset&&request.method==='GET'){const work=await store.findPublicStory?.(publicAsset[1]);if(!work?.public||!storyMediaPaths(work).has(path))throw new StudioError(404,'공개 이미지를 찾지 못했습니다.');const image=await mediaStore?.get(PUBLIC_STORY_OWNER,publicAsset[2]);if(!image)throw new StudioError(404,'공개 이미지를 찾지 못했습니다.');return new Response(Uint8Array.from(image.bytes),{headers:{'Content-Type':image.type,'Cache-Control':'public, max-age=86400','X-Content-Type-Options':'nosniff'}});}
       const creatorResponse=await creatorApi({path,request,owner,store,media:mediaStore,gpu:gpuStore,authorJobs,authorQueue,builtins:stories,body:requestBody,json,publicStory,chargeGeneration:chargeTurn});
       if(creatorResponse)return creatorResponse;
       if (request.method === "GET" && path === "/api/library") {
-        const [drafts, sessions] = await Promise.all([store.drafts(owner), store.sessions(owner)]);
-        return json(200, { stories: [...stories, ...drafts.filter(s=>s.creator?.status!=="draft")].map(story => publicStory(localizeStory(withWorldEngine(story), locale))), sessions, models, defaultModel, runtime: !!aws.arn, streaming: true, pipelineVersion: "scene-stream/13" });
+        const [drafts, sessions,published] = await Promise.all([store.drafts(owner), store.sessions(owner),store.publicStories?.()??[]]);
+        return json(200, { stories: [...new Map([...stories,...drafts.filter(s=>s.creator?.status!=="draft"),...published].map(s=>[s.id,s])).values()].map(story => publicStory(localizeStory(withWorldEngine(story), locale))), sessions, models, defaultModel, runtime: !!aws.arn, streaming: true, pipelineVersion: "scene-stream/13" });
       }
       if (request.method === "POST" && path === "/api/stories") {
         const story = draftStory(`custom-${randomUUID()}`, draftSchema.parse(await requestBody(request)));
@@ -227,7 +230,7 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
         const { story: slug, startId } = z.object({ story: idSchema, startId: z.string().max(64).optional() }).strict().parse(await requestBody(request));
         let story = await readStory(slug);
         if(story?.creator?.status === "draft") throw new StudioError(422,"초안은 제작 화면에서 테스트해 주세요.");
-        if(story?.creator?.document) story={...storyFromDocument(story.creator.document,story.id,startId),creator:story.creator};
+        if(story?.creator?.document) story={...storyFromDocument(story.creator.document,story.id,startId),public:story.public,publicTemplateAvailable:story.publicTemplate?true:story.publicTemplateAvailable,creator:story.creator};
         if (!story) throw new StudioError(404, "작품을 찾지 못했습니다.");
         const episode: Episode = { id: randomUUID(), story: slug, turns: [], memories: [], ...(story.creator ? {storySnapshot:pinStory(story)} : {}), ...(story.narrative ? { narrative: initialNarrativeState(story.narrative), narrativeDefinition: structuredClone(story.narrative) } : {}) };
         await store.putEpisode(owner, episode);

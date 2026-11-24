@@ -12,6 +12,9 @@ export type Mood = (typeof moods)[number];
 type Card = { file: string; label: string; when?: string };
 type PreviewTurn = { input: string; reply: string };
 export type Story = {
+  public?:true;
+  publicTemplateAvailable?:true;
+  publicTemplate?:import("./creator").CreatorDocument;
   id: string; title: string; genre: (typeof genres)[number]; tagline: string; role: string;
   scene: string; prologue: string; greeting: string; cover: string; character: string;
   job: string; voice: string; setting: string; facts: string[]; suggestions: string[];
@@ -135,8 +138,8 @@ export function draftStory(id: string, draft: z.infer<typeof draftSchema>): Stor
     cards: { neutral: { file: sample.cover, label: "작품 표지" } },
   });
 }
-export const publicStory = ({ id, title, genre, tagline, role, scene, prologue, greeting, cover, character, job, suggestions, cards, custom, trustWhen, objective, premiseBadge, source, field, previewTurns, prologueImages, narrative, media, creator, playSettings }: Story) => ({
-  id, title, genre, tagline, role, scene, prologue, greeting, cover, character, job, suggestions, custom, hasTrust: !!trustWhen, objective, premiseBadge, source, field, prologueImages, hasNarrative: !!narrative,
+export const publicStory = ({ public:published, publicTemplate, publicTemplateAvailable, id, title, genre, tagline, role, scene, prologue, greeting, cover, character, job, suggestions, cards, custom, trustWhen, objective, premiseBadge, source, field, previewTurns, prologueImages, narrative, media, creator, playSettings }: Story) => ({
+  public:!!published, hasTemplate:!!publicTemplate||!!publicTemplateAvailable, id, title, genre, tagline, role, scene, prologue, greeting, cover, character, job, suggestions, custom, hasTrust: !!trustWhen, objective, premiseBadge, source, field, prologueImages, hasNarrative: !!narrative,
   preview:creator?.preview, hasMedia:!!media?.length, starts:playSettings?.starts ?? creator?.document?.starts.map(s=>({id:s.id,title:s.title})), recommendedModel:playSettings?.model ?? creator?.document?.profile.model, recommendedLength:playSettings?.responseLength ?? creator?.document?.profile.responseLength,
   previewTurns: previewTurns?.map(turn => ({ input: turn.input, beats: storyBeats(turn.reply) })),
   cards: Object.fromEntries(Object.entries(cards).map(([key, { file, label }]) => [key, { file, label }])),

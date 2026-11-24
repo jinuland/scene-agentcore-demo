@@ -6,7 +6,7 @@ import { compileNarrative, initialNarrativeState, narrativeDefinitionSchema, typ
 import type { Story } from "./stories";
 const id=z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u);
 // Media stays in an owner-scoped object store; executable URLs and embedded data are never accepted.
-export const creatorAssetPath=z.string().regex(/^\/(?:art\/[a-z-]+\.webp|api\/media\/[0-9a-f-]{36})$/u);
+export const creatorAssetPath=z.string().regex(/^\/(?:art\/[a-z-]+\.webp|api\/media\/[0-9a-f-]{36}|api\/published\/custom-[0-9a-f-]{36}\/media\/[0-9a-f-]{36})$/u);
 export const creatorDocumentSchema=z.object({
   schema:z.literal("scene-creator/1"),
   authoring:creatorOptionsSchema.optional(),
@@ -79,6 +79,6 @@ export function storyFromDocument(doc:CreatorDocument,storyId:string,startId?:st
   return{id:storyId,custom:true,title:doc.profile.title,tagline:doc.profile.tagline,genre:doc.profile.genre,role:doc.profile.role,cover,scene:scene.title,prologue:start.prologue,greeting:start.greeting,character:actor.name,job:actor.role,voice:actor.voice,setting:d.summary??actor.description,facts:[],suggestions:scene.choices?.slice(0,3).map(c=>c.text)??scene.suggestions,cards:{neutral:{file:cover,label:doc.profile.title}},media:doc.assets,playSettings:{model:doc.profile.model,responseLength:doc.profile.responseLength,starts:doc.starts.map(s=>({id:s.id,title:s.title}))},narrative:d};
 }
 export function pinStory(story:Story):Story{
-  const copy=structuredClone(story);if(copy.creator)delete copy.creator.document;return copy;
+  const copy=structuredClone(story);if(copy.creator)delete copy.creator.document;if(copy.publicTemplate){copy.publicTemplateAvailable=true;delete copy.publicTemplate;}return copy;
 }
 export function blankCreator():CreatorDocument{return{schema:'scene-creator/1',coverMode:'auto',profile:{title:'새 작품',tagline:'',genre:'판타지',role:'이야기에 참여하는 방문자',cover:'/art/academy-cover.webp',model:'sonnet55',responseLength:'scene'},narrative:{id:'custom-world',version:1,startScene:'opening',startTime:'2026-03-16T12:00:00+09:00',minutesPerTurn:1,summary:'이 작품의 세계 규칙과 현재 갈등을 작성해 주세요.',characters:[{id:'lead',name:'주인공',role:'플레이어와 대화하는 인물',voice:'상황에 맞는 자연스러운 말투',description:'인물의 목표와 성격을 작성해 주세요.',appearance:''}],counters:[{id:'hp',label:'HP',initial:100,min:0,max:100,unit:'',visible:true},{id:'closed',label:'회차 마무리',initial:0,min:0,max:1,unit:'',visible:false}],facts:[],scenes:[{id:'opening',speaker:'lead',title:'첫 만남',location:'이야기의 시작 장소',opening:'지금 일어난 일과 아직 해결되지 않은 갈등을 작성해 주세요.',objective:'서로 원하는 것을 확인하기',minTurns:1,suggestions:[],choices:[{id:'ask',text:'지금 무슨 일이 있었는지 이야기해 줘.',conditions:[]},{id:'finish',text:'오늘 이야기는 여기까지 마무리할게.',conditions:[],actionId:'finish'}],mood:'neutral'}],events:[{id:'finish',label:'오늘 이야기 마무리',when:'플레이어가 오늘 이야기를 끝내겠다고 직접 선택한다.',scenes:['opening'],once:true,effects:[{counter:'closed',delta:1}],conditions:[],minutes:0}],transitions:[],endings:[{id:'closed',title:'오늘의 이야기',text:'두 사람은 오늘의 대화를 마무리했다.',scenes:['opening'],conditions:[{counter:'closed',op:'gte',value:1}],priority:50}],media:[],statusFields:[],plotThreads:[],milestones:[]},starts:[{id:'default',title:'기본 시작',sceneId:'opening',prologue:'장소와 인물, 플레이어가 지금 선택할 이유를 짧게 보여 주세요.',greeting:'왔구나. 잠깐 이야기할 수 있을까?',values:{}}],assets:[]};}

@@ -8,6 +8,10 @@ export type Context = z.infer<typeof runtimeContextSchema>;
 export type Turn = { id: string; input: string; text: string; mood: Mood; suggestions: string[]; mode: string; timing: number; usage?: z.infer<typeof runtimeUsageSchema>; responseLanguage?: Context["responseLanguage"]; responseLength?: Context["responseLength"]; trustQuote?: string; speaker?: string; media?: {id:string;file:string;label:string}[] };
 export type Episode = { id: string; story: string; turns: Turn[]; memories: Context["memories"]; narrative?: NarrativeState; narrativeDefinition?: NarrativeDefinition; narrativeStartedAtTurn?: number; storySnapshot?: Story; narrativeUpgrade?: { fromVersion: number; toVersion: number; atTurn: number; previousEnding?: string } };
 export interface SceneStore {
+  putPublicTemplate?(id:string,document:import("./creator").CreatorDocument):Promise<void>;
+  findPublicStory?(id:string):Promise<Story|undefined>;
+  publicStories?():Promise<Story[]>;
+  putPublicStory?(story:Story):Promise<void>;
   findDraft(owner: string, id: string): Promise<Story | undefined>;
   drafts(owner: string): Promise<Story[]>;
   putDraft(owner: string, draft: Story, expectedRevision?: number): Promise<void>;

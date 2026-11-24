@@ -1,6 +1,6 @@
 {
   "name": "scene-agentcore-demo",
-  "version": "1.10.1",
+  "version": "1.11.0",
   "type": "module",
   "private": true,
   "engines": {
@@ -37,6 +37,6 @@
     "deploy": "npm run build && node -e \"require('node:fs').mkdirSync('outputs', { recursive: true })\" && cdk deploy --outputs-file outputs/scene-demo-stack.json",
     "demo:character": "node --env-file-if-exists=.env.local --import tsx examples/agentcore-character-demo/server.ts",
     "test:gpu": "python3 tests/scene_image_workflow_test.py",
-    "test": "tsx --test tests/narrative-graph.test.ts tests/scene-streaming.test.ts tests/scene-world.test.ts tests/scene-continuation.test.ts tests/scene-creator.test.ts tests/scene-partner.test.ts tests/scene-gpu.test.ts tests/scene-author-jobs.test.ts tests/scene-creator-tools.test.ts tests/scene-image-workflow.test.ts"
+    "test": "tsx --test tests/narrative-graph.test.ts tests/scene-streaming.test.ts tests/scene-world.test.ts tests/scene-continuation.test.ts tests/scene-creator.test.ts tests/scene-partner.test.ts tests/scene-gpu.test.ts tests/scene-author-jobs.test.ts tests/scene-creator-tools.test.ts tests/scene-image-workflow.test.ts tests/scene-publication.test.ts"
   }
 }

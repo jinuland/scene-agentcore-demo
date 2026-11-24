@@ -89,7 +89,7 @@ projector.addEventSource(new sources.DynamoEventSource(data, {
   onFailure: new sources.SqsDlq(projectionFailures),
   filters: [lambda.FilterCriteria.filter({ dynamodb: { Keys: { record: { S: lambda.FilterRule.beginsWith("episode#") } } } })],
 }));
-const creatorMedia = new s3.Bucket(stack,"CreatorMedia",{blockPublicAccess:s3.BlockPublicAccess.BLOCK_ALL,encryption:s3.BucketEncryption.S3_MANAGED,enforceSSL:true,lifecycleRules:[{expiration:cdk.Duration.days(8)}],removalPolicy:cdk.RemovalPolicy.DESTROY});
+const creatorMedia = new s3.Bucket(stack,"CreatorMedia",{blockPublicAccess:s3.BlockPublicAccess.BLOCK_ALL,encryption:s3.BucketEncryption.S3_MANAGED,enforceSSL:true,lifecycleRules:[{prefix:'creator/',expiration:cdk.Duration.days(8)},{prefix:'creator-jobs/',expiration:cdk.Duration.days(8)}],removalPolicy:cdk.RemovalPolicy.DESTROY});
 const secret = new secrets.Secret(stack, "DemoAccess", {
   generateSecretString: { passwordLength: 16, excludePunctuation: true },
 });
@@ -115,6 +115,7 @@ const web = new lambda.Function(stack, "SceneWeb", {
   },
 });
 creatorMedia.grantReadWrite(web,"creator/*");
+creatorMedia.grantReadWrite(web,"published/*");
 creatorMedia.grantReadWrite(web,"creator-jobs/*");
 if(gpuRoleName){const gpuRole=iam.Role.fromRoleName(stack,"ExistingCreatorGpuRole",gpuRoleName);creatorMedia.grantReadWrite(gpuRole,"creator/*");creatorMedia.grantReadWrite(gpuRole,"creator-jobs/*");}
 web.addToRolePolicy(new iam.PolicyStatement({actions:["bedrock:InvokeModel"],resources:[`arn:${stack.partition}:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6`,`arn:${stack.partition}:bedrock:${stack.region}:${stack.account}:inference-profile/global.anthropic.claude-sonnet-4-6`]}));
