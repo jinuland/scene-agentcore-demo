@@ -45,7 +45,7 @@ export async function publishPublicTemplate(store:SceneStore,media:CreatorMediaS
  const source=await store.findDraft(owner,id);if(source?.creator?.status!=='published'||source.creator.preview||!source.creator.document)throw new StudioError(404,'내가 등록한 작품의 초안만 공유할 수 있습니다.');
  if(!store.putPublicTemplate||!media)throw new StudioError(503,'공개 초안 저장소가 연결되어 있지 않습니다.');
  const published=await publishPublicStory(store,media,owner,id);if(published.publicTemplate)return structuredClone(published.publicTemplate);
- const doc=structuredClone(source.creator.document);delete doc.imageJobs;delete doc.imageWorkflow;doc.autoSceneImages=false;
+ const doc=structuredClone(source.creator.document);delete doc.creatorChatId;delete doc.imageJobs;delete doc.imageWorkflow;doc.autoSceneImages=false;
  const mapped=new Map<string,string>();mapped.set(source.cover,published.cover);
  for(const a of source.media??[]){const copied=published.media?.find(p=>p.id===a.id);if(copied)mapped.set(a.file,copied.file);}
  const files=new Set([doc.profile.cover,...doc.assets.flatMap(a=>[a.file,...(a.referenceFile?[a.referenceFile]:[]),...(a.referenceFiles??[])])]);
@@ -65,5 +65,5 @@ export async function importPublicTemplate(store:SceneStore,media:CreatorMediaSt
  const story=await store.findPublicStory?.(id);if(!story?.publicTemplate||!story.public)throw new StudioError(404,'공개 초안을 찾지 못했습니다.');if(!media)throw new StudioError(503,'이미지 저장소가 연결되어 있지 않습니다.');
  const doc=structuredClone(story.publicTemplate),mapped=new Map<string,string>();const files=new Set([doc.profile.cover,...doc.assets.flatMap(a=>[a.file,...(a.referenceFile?[a.referenceFile]:[]),...(a.referenceFiles??[])])]);
  for(const file of files){if(file.startsWith('/art/')){mapped.set(file,file);continue;}const match=publicMediaRoute.exec(file);if(!match||!storyMediaPaths(story).has(file))throw new StudioError(422,'공개 초안의 이미지 연결을 확인해 주세요.');const found=await media.get(PUBLIC_STORY_OWNER,match[2]);if(!found)throw new StudioError(422,'공개 초안 이미지를 찾지 못했습니다.');mapped.set(file,'/api/media/'+await media.put(owner,found.type,found.bytes));}
- const path=(file:string)=>mapped.get(file)??file;doc.profile.cover=path(doc.profile.cover);doc.assets=doc.assets.map(a=>({...a,file:path(a.file),...(a.referenceFile?{referenceFile:path(a.referenceFile)}:{}),...(a.referenceFiles?{referenceFiles:a.referenceFiles.map(path)}:{})}));delete doc.imageJobs;delete doc.imageWorkflow;doc.autoSceneImages=false;return doc;
+ const path=(file:string)=>mapped.get(file)??file;doc.profile.cover=path(doc.profile.cover);doc.assets=doc.assets.map(a=>({...a,file:path(a.file),...(a.referenceFile?{referenceFile:path(a.referenceFile)}:{}),...(a.referenceFiles?{referenceFiles:a.referenceFiles.map(path)}:{})}));delete doc.creatorChatId;delete doc.imageJobs;delete doc.imageWorkflow;doc.autoSceneImages=false;return doc;
 }

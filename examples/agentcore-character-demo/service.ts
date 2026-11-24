@@ -1,3 +1,4 @@
+import type{CreatorChatStore}from'./creator-chat-store';
 import {publicMediaRoute,PUBLIC_STORY_OWNER,storyMediaPaths} from './public-stories';
 import type{AuthorJobStore,AuthorQueue}from'./creator-job-store';
 import type {CreatorGpuStore} from "./creator-gpu";
@@ -126,7 +127,7 @@ type ServiceOptions = {
   accessCode?: string;
   publicAccess?: boolean;
   chargeTurn?: () => Promise<void>;
-  authorJobs?:AuthorJobStore; authorQueue?:AuthorQueue;
+  authorJobs?:AuthorJobStore; authorQueue?:AuthorQueue; creatorChats?:CreatorChatStore;
   gpuStore?: CreatorGpuStore;
   mediaStore?: CreatorMediaStore;
 };
@@ -149,7 +150,7 @@ async function requestBody(request: Request, maxBytes = 8192) {
   catch { throw new StudioError(400, "요청을 읽을 수 없습니다."); }
 }
 
-export function createSceneService({ store, web, aws, accessCode, publicAccess = false, chargeTurn, mediaStore, gpuStore, authorJobs, authorQueue }: ServiceOptions) {
+export function createSceneService({ store, web, aws, accessCode, publicAccess = false, chargeTurn, mediaStore, gpuStore, authorJobs, authorQueue, creatorChats }: ServiceOptions) {
   const models = enabledDialogueModes();
   const defaultModel = models.find(model => model.id === "sonnet55")?.id ?? models[0]?.id;
   const recentScenes = new Map<string, Buffer>();
@@ -215,7 +216,7 @@ export function createSceneService({ store, web, aws, accessCode, publicAccess =
 
       const publicAsset=publicMediaRoute.exec(path);
       if(publicAsset&&request.method==='GET'){const work=await store.findPublicStory?.(publicAsset[1]);if(!work?.public||!storyMediaPaths(work).has(path))throw new StudioError(404,'공개 이미지를 찾지 못했습니다.');const image=await mediaStore?.get(PUBLIC_STORY_OWNER,publicAsset[2]);if(!image)throw new StudioError(404,'공개 이미지를 찾지 못했습니다.');return new Response(Uint8Array.from(image.bytes),{headers:{'Content-Type':image.type,'Cache-Control':'public, max-age=86400','X-Content-Type-Options':'nosniff'}});}
-      const creatorResponse=await creatorApi({path,request,owner,store,media:mediaStore,gpu:gpuStore,authorJobs,authorQueue,builtins:stories,body:requestBody,json,publicStory,chargeGeneration:chargeTurn});
+      const creatorResponse=await creatorApi({path,request,owner,store,media:mediaStore,gpu:gpuStore,authorJobs,authorQueue,creatorChats,builtins:stories,body:requestBody,json,publicStory,chargeGeneration:chargeTurn});
       if(creatorResponse)return creatorResponse;
       if (request.method === "GET" && path === "/api/library") {
         const [drafts, sessions,published] = await Promise.all([store.drafts(owner), store.sessions(owner),store.publicStories?.()??[]]);

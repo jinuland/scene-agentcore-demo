@@ -25,7 +25,7 @@ test('template media follows the generated main character and repaired bindings 
  const result=publicAuthorJob(job,await s.store.tasks(owner,job.id));assert.equal(result.status,'completed');
  assert.equal(result.document.narrative.media[0].characterId,'prince');assert.deepEqual(result.document.narrative.media[0].scenes,['home']);assert.equal(result.document.assets[0].characterId,'prince');
  const current=structuredClone(s.base);current.assets[0].file='/art/outer-cover.webp';
- const applied=applyAuthorProposal(result.document,current);assert.equal(applied.narrative.media[0].characterId,'prince');assert.equal(applied.assets[0].characterId,'prince');assert.equal(applied.assets[0].file,'/art/outer-cover.webp');assert.equal(s.base.narrative.media[0].characterId,'lead');
+ current.creatorChatId='11111111-1111-4111-8111-111111111111';const applied=applyAuthorProposal(result.document,current);assert.equal(applied.creatorChatId,current.creatorChatId);assert.equal(applied.narrative.media[0].characterId,'prince');assert.equal(applied.assets[0].characterId,'prince');assert.equal(applied.assets[0].file,'/art/outer-cover.webp');assert.equal(s.base.narrative.media[0].characterId,'lead');
 });
 test('existing media identities resolve by unique name without removing scene or stat gates',()=>{
  const base=blankCreator();base.narrative.id='existing';base.narrative.characters![0].name='왕자';base.narrative.scenes[0].title='왕의 별';base.narrative.counters[0].label='용기';

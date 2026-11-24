@@ -1,3 +1,4 @@
+import{sqliteCreatorChats}from'./creator-chat-store';
 import{sqliteAuthorJobs,type AuthorQueue}from'./creator-job-store';
 import{executeAuthorTask}from'./creator-jobs';
 import {s3CreatorGpu} from "./creator-gpu";
@@ -40,7 +41,7 @@ const authorJobs=sqliteAuthorJobs(resolve(process.env.CHARACTER_DEMO_DB??'.studi
 const pendingAuthor:{owner:string;jobId:string;taskId:string}[]=[];let authorActive=0;
 const authorQueue:AuthorQueue=async message=>{pendingAuthor.push(message);drainAuthors();};
 function drainAuthors(){while(authorActive<3&&pendingAuthor.length){const message=pendingAuthor.shift()!;authorActive++;void executeAuthorTask(authorJobs,authorQueue,message).catch(e=>console.error('Author worker:',e instanceof Error?e.message:'failed')).finally(()=>{authorActive--;drainAuthors();});}}
-const handle = createSceneService({authorJobs,authorQueue,
+const handle = createSceneService({authorJobs,authorQueue,creatorChats:sqliteCreatorChats(resolve(process.env.CHARACTER_DEMO_DB??'.studio/agentcore-character-demo/demo.sqlite')+'.creator-chat.sqlite'),
   gpuStore:process.env.CHARACTER_DEMO_GPU_BUCKET?s3CreatorGpu(process.env.CHARACTER_DEMO_GPU_BUCKET):undefined,
   store: sqliteStore(resolve(process.env.CHARACTER_DEMO_DB ?? ".studio/agentcore-character-demo/demo.sqlite")),
   web: fileURLToPath(new URL("./web/", import.meta.url)),

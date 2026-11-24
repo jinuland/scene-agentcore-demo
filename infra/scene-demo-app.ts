@@ -98,7 +98,7 @@ const web = new lambda.Function(stack, "SceneWeb", {
   runtime: lambda.Runtime.NODEJS_24_X,
   code: lambda.Code.fromAsset(".studio/scene-demo-build/web"),
   handler: "index.handler",
-  timeout: cdk.Duration.seconds(120),
+  timeout: cdk.Duration.seconds(240),
   memorySize: 512,
   reservedConcurrentExecutions: 10,
   logGroup,

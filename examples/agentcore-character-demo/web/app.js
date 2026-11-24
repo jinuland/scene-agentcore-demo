@@ -53,7 +53,7 @@ async function api(path, data, onDelta, onEvent) {
         if (!raw) continue;
         const payload = JSON.parse(raw);
         if (event === "dialogue.delta" || event === "creator.delta") onDelta(payload.text);
-        if (["creator.tool","creator.activity","creator.artifacts"].includes(event)) onEvent?.(event,payload);
+        if (["creator.tool","creator.activity","creator.artifacts","creator.heartbeat","creator.proposal","creator.research"].includes(event)) onEvent?.(event,payload);
         if (event === "creator.completed") committed = payload;
         if (event === "creator.error") throw new Error(t(payload.error));
         if (event === "turn.error") throw new Error(t(payload.error));
