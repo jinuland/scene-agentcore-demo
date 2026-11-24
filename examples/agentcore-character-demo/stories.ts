@@ -25,7 +25,7 @@ export type Story = {
   prologueImages?: { file: string; label: string }[];
   narrative?: NarrativeDefinition;
   narrativePresentation?: NarrativeDefinition;
-  creator?: { revision: number; status: "draft" | "published"; sourceId?: string; document?: import("./creator").CreatorDocument; preview?: boolean };
+  creator?: { workId?:string; version?:number; memo?:string; savedAt?:string; revision: number; status: "draft" | "published"; sourceId?: string; document?: import("./creator").CreatorDocument; preview?: boolean };
   media?: {id:string;file:string;label:string}[];
   playSettings?: {model:string;responseLength:"short"|"scene";starts:{id:string;title:string}[]};
 };

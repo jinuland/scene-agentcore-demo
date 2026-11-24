@@ -1,3 +1,4 @@
+import{creatorVersions,versionInventory}from'./creator-versions';
 import{creatorChatView,creatorChatContext,type CreatorChatStore}from'./creator-chat-store';
 import {publishPublicStory,publishPublicTemplate,importPublicTemplate} from './public-stories';
 import{publicImageWorkflow}from'./creator-image-workflow';
@@ -8,7 +9,7 @@ import{authorJobRequest,createAuthorJob,dispatchAuthorJob,publicAuthorJob,retryA
 import {creatorImageModel,gpuRequestSchema,queueCreatorImage,publicGpuJob,type CreatorGpuStore} from "./creator-gpu";
 import {partnerRequestSchema,partnerStateSchema,proposedSettings,runCreatorPartner} from "./creator-partner";
 import {assistCreator,authorBriefSchema} from "./creator-assist";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { z } from "zod";
 import { advanceNarrative, availableNarrativeActions, initialNarrativeState, narrativeStateSchema } from "../../lib/platform/narrative-graph";
 import { presentNarrative } from "../../lib/platform/narrative-presentation";
@@ -36,7 +37,7 @@ export async function creatorApi(args:{path:string;request:Request;owner:string;
  if(method==='GET'&&path==='/api/creator/examples/little-prince'){const shared=await store.findPublicStory?.('custom-1fa65f60-fc76-4a2b-9063-1b6022e7aad4');if(shared?.public&&shared.publicTemplate)return json(200,{document:shared.publicTemplate,sourceId:shared.id,publicTemplate:true});return json(200,{document:creatorDocumentSchema.parse(littlePrinceExample)});}
  if(method==='GET'&&path==='/api/creator/template')return json(200,{document:blankCreator()});
  if(method==='GET'&&path==='/api/creator'){
-  const own=await store.drafts(owner),templates=(await store.publicStories?.()??[]).filter(s=>s.publicTemplate);return json(200,{drafts:own.filter(s=>s.creator?.status==='draft').map(s=>({id:s.id,title:s.title,revision:s.creator!.revision})),sources:[...builtins,...own.filter(s=>s.creator?.status!=='draft'&&!s.creator?.preview)].map(s=>({id:s.id,title:s.title,version:s.narrative?.version??1,custom:!!s.custom})).concat(templates.map(s=>({id:'template:'+s.id,title:'공개 초안 · '+s.title,version:s.narrative?.version??1,custom:true}))),gpu:{enabled:!!args.gpu,model:creatorImageModel.label,message:args.gpu?'Qwen-Image-2.1 · 정면 기준으로 캐릭터 동일성을 유지하며 생성합니다.':'GPU 작업자를 연결하면 기준 이미지와 감정·상황 이미지를 생성할 수 있습니다.'}});
+  const versions=await creatorVersions(store,owner),own=await store.drafts(owner),templates=(await store.publicStories?.()??[]).filter(s=>s.publicTemplate);return json(200,{works:versionInventory(versions),drafts:own.filter(s=>s.creator?.status==='draft').map(s=>({id:s.id,title:s.title,revision:s.creator!.revision})),sources:[...builtins,...own.filter(s=>s.creator?.status!=='draft'&&!s.creator?.preview)].map(s=>({id:s.id,title:s.title,version:s.narrative?.version??1,custom:!!s.custom})).concat(templates.map(s=>({id:'template:'+s.id,title:'공개 초안 · '+s.title,version:s.narrative?.version??1,custom:true}))),gpu:{enabled:!!args.gpu,model:creatorImageModel.label,message:args.gpu?'Qwen-Image-2.1 · 정면 기준으로 캐릭터 동일성을 유지하며 생성합니다.':'GPU 작업자를 연결하면 기준 이미지와 감정·상황 이미지를 생성할 수 있습니다.'}});
  }
  if(path==='/api/creator/image-workflows'&&method==='POST'){
   if(!args.gpu?.createWorkflow)throw new StudioError(503,'이미지 작업자가 연결되어 있지 않습니다.');const input=z.object({requestId:z.string().uuid(),document:creatorDocumentSchema}).strict().parse(await body(request,350000));
@@ -59,7 +60,7 @@ export async function creatorApi(args:{path:string;request:Request;owner:string;
  const publicTemplate=/^\/api\/creator\/templates\/(custom-[0-9a-f-]{36})$/u.exec(path);
  if(publicTemplate&&method==='GET'){const work=await store.findPublicStory?.(publicTemplate[1]);if(!work?.publicTemplate)throw new StudioError(404,'공개 초안을 찾지 못했습니다.');return json(200,{document:work.publicTemplate,sourceId:work.id,publicTemplate:true});}
  const source=/^\/api\/creator\/sources\/([a-z0-9-]{1,64})$/u.exec(path);
- if(source&&method==='GET'){const story=builtins.find(s=>s.id===source[1])??await store.findDraft(owner,source[1]);if(!story)throw new StudioError(404,"작품을 찾지 못했습니다.");const document=documentForStory(story);if(story.creator?.status!=='draft')delete document.creatorChatId;return json(200,{document,...(story.creator?.status==='draft'?{id:story.id,revision:story.creator.revision}:{sourceId:story.id})});}
+ if(source&&method==='GET'){const story=builtins.find(s=>s.id===source[1])??await store.findDraft(owner,source[1]);if(!story)throw new StudioError(404,"작품을 찾지 못했습니다.");const document=documentForStory(story);if(story.creator?.status!=='draft')delete document.creatorChatId;return json(200,{document,...(story.creator?.status==='draft'?{id:story.id,revision:story.creator.revision,workId:story.creator.workId??story.id,version:story.creator.version??1}:{sourceId:story.id})});}
  const gpuJob=/^\/api\/creator\/gpu\/([0-9a-f-]{36})$/u.exec(path);
  if(gpuJob&&method==='GET'){const job=await args.gpu?.get(owner,gpuJob[1]);if(!job)throw new StudioError(404,'생성 작업을 찾지 못했습니다.');return json(200,publicGpuJob(job));}
  if(method!=='POST')throw new StudioError(405,"지원하지 않는 요청입니다.");
@@ -99,13 +100,13 @@ export async function creatorApi(args:{path:string;request:Request;owner:string;
   const id=await media.put(owner,data.type,bytes);return json(201,{file:'/api/media/'+id});
  }
  if(path==='/api/creator/drafts'){
-  const data=z.object({id:draftId.optional(),revision:z.number().int().positive().optional(),sourceId:z.string().max(64).optional(),document:z.record(z.string(),z.unknown())}).strict().parse(await body(request,250000));
+  const data=z.object({id:draftId.optional(),revision:z.number().int().positive().optional(),sourceId:z.string().max(64).optional(),mode:z.enum(['current','new']).optional(),memo:z.string().max(120).optional(),document:z.record(z.string(),z.unknown())}).strict().parse(await body(request,250000));
   if(JSON.stringify(data.document).length>100000)throw new StudioError(413,"작품 초안이 너무 큽니다.");
   if(data.id && !data.revision)throw new StudioError(409,"초안 버전을 확인해 주세요.");
-  const key=data.id??'custom-'+randomUUID(),doc=data.document as unknown as CreatorDocument;
+  const previous=data.id?await store.findDraft(owner,data.id):undefined;if(data.id&&(!previous||previous.creator?.status!=='draft'||previous.creator.revision!==data.revision))throw new StudioError(409,'작품이 변경됐습니다. 다시 불러와 주세요.');const siblings=data.mode==='new'?await creatorVersions(store,owner):[];const workId=previous?.creator?.workId??previous?.id;const version=data.mode==='new'?Math.max(0,...siblings.filter(s=>(s.creator?.workId??s.id)===workId).map(s=>s.creator?.version??1))+1:previous?.creator?.version??1;const newId=data.mode==='new';const hash=workId&&newId?createHash('sha256').update(workId+':'+version).digest('hex'):undefined;const versionId=hash?'custom-'+hash.slice(0,8)+'-'+hash.slice(8,12)+'-4'+hash.slice(13,16)+'-a'+hash.slice(17,20)+'-'+hash.slice(20,32):undefined;const key=!newId&&data.id?data.id:versionId??'custom-'+randomUUID(),doc=data.document as unknown as CreatorDocument;
   // Incomplete drafts remain private, inert data until validation and publication.
-  const draft:Story={id:key,custom:true,title:String(doc.profile?.title??'새 작품').slice(0,48),genre:'SF',tagline:'',role:'',scene:'',prologue:'',greeting:'',cover:'/art/outer-cover.webp',character:'',job:'',voice:'',setting:'',facts:[],suggestions:[],cards:{neutral:{file:'/art/outer-cover.webp',label:'초안'}},creator:{status:'draft',revision:(data.revision??0)+1,sourceId:data.sourceId,document:doc}};
-  await store.putDraft(owner,draft,data.id?data.revision:undefined);return json(200,{id:key,revision:draft.creator!.revision});
+  const draft:Story={id:key,custom:true,title:String(doc.profile?.title??'새 작품').slice(0,48),genre:'SF',tagline:'',role:'',scene:'',prologue:'',greeting:'',cover:'/art/outer-cover.webp',character:'',job:'',voice:'',setting:'',facts:[],suggestions:[],cards:{neutral:{file:'/art/outer-cover.webp',label:'초안'}},creator:{status:'draft',revision:newId?1:(data.revision??0)+1,workId:workId??key,version,memo:data.memo??previous?.creator?.memo,savedAt:new Date().toISOString(),sourceId:data.sourceId,document:doc}};
+  await store.putDraft(owner,draft,data.id&&!newId?data.revision:undefined);return json(200,{id:key,revision:draft.creator!.revision,workId:draft.creator!.workId,version});
  }
  if(path==='/api/creator/validate'||path==='/api/creator/simulate'){
   const data=z.object({document:z.unknown(),startId:z.string().optional(),state:narrativeStateSchema.optional(),actionId:z.string().optional(),transitionId:z.string().optional()}).strict().parse(await body(request,250000));
